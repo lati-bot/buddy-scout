@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Logo from "./logo";
 
 export default function Login() {
   const [pw, setPw] = useState("");
@@ -26,9 +27,12 @@ export default function Login() {
 
   return (
     <div style={{ maxWidth: 380, margin: "0 auto", padding: "80px 22px" }}>
-      <h1 style={{ fontSize: 30, margin: "0 0 4px", letterSpacing: "-0.02em" }}>
-        Buddy Scout
-      </h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+        <Logo size={40} />
+        <h1 style={{ fontSize: 30, margin: 0, letterSpacing: "-0.02em" }}>
+          Buddy Scout
+        </h1>
+      </div>
       <p style={{ color: "#6b675e", margin: "0 0 28px", fontSize: 15 }}>
         Sign in to continue.
       </p>

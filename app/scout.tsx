@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Logo from "./logo";
 
 type Seed = {
   company: string;
@@ -88,9 +89,12 @@ export default function Scout({ seed }: { seed: Seed[] }) {
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "40px 22px 80px" }}>
-      <h1 style={{ fontSize: 30, margin: "0 0 4px", letterSpacing: "-0.02em" }}>
-        Buddy Scout
-      </h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
+        <Logo size={44} />
+        <h1 style={{ fontSize: 30, margin: 0, letterSpacing: "-0.02em" }}>
+          Buddy Scout
+        </h1>
+      </div>
       <p style={{ color: "#6b675e", margin: "0 0 24px", fontSize: 15 }}>
         Type a company. Get the right person to reach, their verified email, and
         how to pitch Buddy to them.
