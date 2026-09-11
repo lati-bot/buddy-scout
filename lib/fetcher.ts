@@ -61,6 +61,24 @@ function normWorkplace(s?: string): Role["workplaceType"] | undefined {
   return undefined;
 }
 
+// Coerce any ATS field to a clean string. Some boards (e.g. bunq, norm.ai)
+// return a title as an object/number instead of a string; this guarantees a
+// string flows downstream so a filter like `title.trim()` can never blow up
+// the research loop.
+function str(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v == null) return "";
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    // common shapes: {name}, {text}, {en}, {label}
+    for (const k of ["name", "text", "label", "en", "value"]) {
+      if (typeof o[k] === "string") return o[k] as string;
+    }
+  }
+  return "";
+}
+
 // ---------- adapters (each returns normalized Role[]) ----------
 
 // GREENHOUSE: boards-api.greenhouse.io/v1/boards/{token}/jobs
@@ -74,7 +92,7 @@ async function greenhouse(slug: string): Promise<Role[]> {
     }>;
   }>(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`);
   return (data.jobs ?? []).map((j) => ({
-    title: unescapeHtml(j.title ?? "").trim(),
+    title: unescapeHtml(str(j.title)).trim(),
     department: j.departments?.[0]?.name,
     location: j.location?.name,
     workplaceType: normWorkplace(j.location?.name),
@@ -94,7 +112,7 @@ async function lever(slug: string): Promise<Role[]> {
     }>
   >(`https://api.lever.co/v0/postings/${slug}?mode=json`);
   return (data ?? []).map((j) => ({
-    title: j.text ?? "",
+    title: str(j.text).trim(),
     department: j.categories?.department ?? j.categories?.team,
     location: j.categories?.location,
     workplaceType: normWorkplace(j.workplaceType),
@@ -121,7 +139,7 @@ async function ashby(slug: string): Promise<Role[]> {
       j.compensation?.summaryComponents?.[0] ??
       j.compensation?.compensationTiers?.[0]?.components?.[0];
     return {
-      title: j.title ?? "",
+      title: str(j.title).trim(),
       department: j.departmentName,
       location: j.locationName,
       workplaceType: j.isRemote ? "remote" : normWorkplace(j.locationName),
@@ -153,7 +171,7 @@ async function smartrecruiters(slug: string): Promise<Role[]> {
     const batch = data.content ?? [];
     for (const j of batch) {
       roles.push({
-        title: j.name ?? "",
+        title: str(j.name).trim(),
         department: j.department?.label,
         location: j.location?.city,
         workplaceType: j.location?.remote ? "remote" : undefined,
@@ -178,7 +196,7 @@ async function recruitee(slug: string): Promise<Role[]> {
     }>;
   }>(`https://${slug}.recruitee.com/api/offers/`);
   return (data.offers ?? []).map((j) => ({
-    title: j.position ?? "",
+    title: str(j.position).trim(),
     department: j.department,
     location: j.location,
     workplaceType: j.remote ? "remote" : normWorkplace(j.location),

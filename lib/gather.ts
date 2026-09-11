@@ -70,7 +70,7 @@ export async function gather(opts: {
   if (fetch.ok && fetch.roles.length) {
     // Drop ATS noise: empty titles and "pitch your own role" evergreen placeholders.
     const realRoles = fetch.roles.filter(
-      (r) => r.title.trim().length > 2 && !/pitch your own|open application|general application|future opportunit/i.test(r.title)
+      (r) => typeof r.title === "string" && r.title.trim().length > 2 && !/pitch your own|open application|general application|future opportunit/i.test(r.title)
     );
     const src: Source = {
       kind: fetch.boardUrl.startsWith("http") ? "ats" : "ats",

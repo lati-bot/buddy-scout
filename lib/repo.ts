@@ -66,9 +66,16 @@ export async function listDueForRecheck(days = 14, max = 100): Promise<Company[]
   const { resources } = await container.items
     .query<Company>({
       query:
-        "SELECT * FROM c WHERE (c.lastCheckedAt = null OR c.lastCheckedAt < @cutoff) OFFSET 0 LIMIT @max",
-      parameters: [{ name: "@cutoff", value: cutoff }],
+        "SELECT * FROM c WHERE (NOT IS_DEFINED(c.lastCheckedAt) OR IS_NULL(c.lastCheckedAt) OR c.lastCheckedAt < @cutoff) OFFSET 0 LIMIT @max",
+      parameters: [
+        { name: "@cutoff", value: cutoff },
+        { name: "@max", value: max },
+      ],
     })
     .fetchAll();
-  return resources.slice(0, max);
+  // Sort client-side (Cosmos ORDER BY on nullable fields is unreliable on
+  // serverless): oldest / never-checked first, so the stalest get seen soonest.
+  return resources
+    .sort((a, b) => (a.lastCheckedAt ?? "").localeCompare(b.lastCheckedAt ?? ""))
+    .slice(0, max);
 }
