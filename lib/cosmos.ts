@@ -11,6 +11,7 @@ const containerId = process.env.COSMOS_CONTAINER || "companies";
 
 let _client: CosmosClient | null = null;
 let _container: Container | null = null;
+let _connections: Container | null = null;
 
 export function cosmosConfigured(): boolean {
   return Boolean(endpoint && key);
@@ -39,4 +40,23 @@ export async function getContainer(): Promise<Container> {
   });
   _container = container;
   return _container;
+}
+
+/**
+ * Connections container — Tomi's LinkedIn network, used for warm-path matching.
+ * Partitioned on /companyKey (normalized company name) so "who do I know at X?"
+ * is a single-partition lookup. Personal network data: lives here behind keys,
+ * never in the repo, never surfaced outside an authed session.
+ */
+export async function getConnectionsContainer(): Promise<Container> {
+  if (_connections) return _connections;
+  const c = client();
+  const { database }: { database: Database } =
+    await c.databases.createIfNotExists({ id: databaseId });
+  const { container } = await database.containers.createIfNotExists({
+    id: "connections",
+    partitionKey: { paths: ["/companyKey"] },
+  });
+  _connections = container;
+  return _connections;
 }
