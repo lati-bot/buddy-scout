@@ -25,7 +25,16 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function GET(req: NextRequest) {
   if (!cronAuthed(req)) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+    const s = process.env.CRON_SECRET;
+    return NextResponse.json({
+      ok: false,
+      error: "unauthorized",
+      _diag: {
+        secretPresent: !!s,
+        secretLen: s ? s.length : 0,
+        gotHeader: (req.headers.get("authorization") ?? "").slice(0, 7),
+      },
+    }, { status: 401 });
   }
 
   const started = Date.now();
