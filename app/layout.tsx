@@ -1,6 +1,7 @@
 export const metadata = {
   title: "Buddy Scout",
-  description: "Find the right person to reach, their verified email, and how to pitch.",
+  description:
+    "Type a company. Get whether they're hiring, the right person to reach, and how to pitch Buddy.",
 };
 
 export default function RootLayout({
@@ -13,10 +14,13 @@ export default function RootLayout({
       <body
         style={{
           margin: 0,
-          background: "#faf8f3",
-          color: "#1a1a1a",
+          background: "#faf9f7",
+          color: "#17171a",
           fontFamily:
-            '"Iowan Old Style", Georgia, "Times New Roman", serif',
+            'ui-sans-serif,"Helvetica Neue",Helvetica,Arial,sans-serif',
+          fontSize: 15,
+          lineHeight: 1.55,
+          WebkitFontSmoothing: "antialiased",
         }}
       >
         {children}

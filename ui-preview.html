@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buddy Scout — packet</title>
+<style>
+  :root{
+    --ink:#17171a;
+    --ink-2:#5c5c66;
+    --ink-3:#8e8e99;
+    --paper:#faf9f7;
+    --rule:#e2e0db;
+    --accent:#1f5f4f;
+    --accent-wash:#e8f0ed;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:ui-sans-serif,"Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  }
+  .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  header{border-bottom:1px solid var(--rule);padding:14px 28px;display:flex;align-items:baseline;gap:22px}
+  .mark{font-weight:680;letter-spacing:-.02em}
+  .mark span{color:var(--ink-3);font-weight:500}
+  nav{margin-left:auto;display:flex;gap:20px;font-size:13.5px;color:var(--ink-2)}
+  nav a{color:inherit;text-decoration:none;padding-bottom:2px}
+  nav a.on{color:var(--ink);box-shadow:inset 0 -2px 0 var(--accent)}
+  main{max-width:760px;margin:0 auto;padding:40px 28px 80px}
+
+  .eyebrow{font-size:11.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+  h1{font-size:27px;letter-spacing:-.025em;margin:.35rem 0 .5rem;font-weight:640}
+  .sub{color:var(--ink-2);font-size:14px}
+  .sub a{color:var(--ink-2)}
+
+  .pill{display:inline-block;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 8px;border:1px solid var(--accent);color:var(--accent);background:var(--accent-wash);
+    border-radius:2px;font-weight:600;vertical-align:3px;margin-left:10px}
+  .pill.flat{border-color:var(--rule);background:none;color:var(--ink-3);font-weight:500}
+
+  .meta{display:flex;gap:34px;margin:22px 0 34px;padding:14px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+  .meta div{font-size:13px}
+  .meta dt{color:var(--ink-3);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}
+
+  section{margin:0 0 30px;padding-left:34px;position:relative}
+  section::before{content:attr(data-n);position:absolute;left:0;top:2px;
+    color:var(--ink-3);font-size:12px;font-variant-numeric:tabular-nums}
+  h2{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+    font-weight:600;margin:0 0 8px}
+  p{margin:0 0 10px;max-width:62ch}
+  .lede{font-size:16.5px;line-height:1.5}
+
+  ul{margin:0;padding:0;list-style:none}
+  li{padding:7px 0;border-bottom:1px solid var(--rule);display:flex;gap:14px;font-size:14px}
+  li:last-child{border-bottom:0}
+  li b{font-weight:600;min-width:128px;color:var(--ink-2)}
+  .src{color:var(--ink-3);font-size:12.5px}
+
+  .warm{border-left:2px solid var(--accent);padding:2px 0 2px 14px;margin:12px 0}
+  .warm b{color:var(--accent)}
+  .cold{border-left:2px solid var(--rule);padding:2px 0 2px 14px;margin:12px 0;color:var(--ink-2)}
+
+  .draft{background:#fff;border:1px solid var(--rule);padding:18px 20px;font-size:14px;line-height:1.65;margin-top:10px}
+  .draft p{margin:0 0 10px}
+  .draft p:last-child{margin:0}
+
+  .actions{display:flex;gap:10px;margin-top:14px;align-items:center}
+  button{font:inherit;font-size:13.5px;padding:7px 15px;border-radius:2px;cursor:pointer;border:1px solid var(--rule);background:#fff;color:var(--ink)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:550}
+  .hint{color:var(--ink-3);font-size:12.5px}
+
+  footer{border-top:1px solid var(--rule);margin-top:44px;padding-top:14px;
+    display:flex;justify-content:space-between;color:var(--ink-3);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="mark" style="display:flex;align-items:center;gap:9px"><svg width="20" height="20" viewBox="0 0 64 64" style="flex:none"><g fill="#17171a"><circle cx="17" cy="32" r="13"/><circle cx="47" cy="32" r="13"/><rect x="17" y="26" width="30" height="12"/></g></svg><div>Buddy <span>Scout</span></div></div>
+  <nav>
+    <a href="#" class="on">Queue</a><a href="#">Packets</a><a href="#">Contacted</a><a href="#">New lookup</a>
+  </nav>
+</header>
+
+<main>
+  <div class="eyebrow">Packet · deep pass</div>
+  <h1>Tessellate Labs<span class="pill">Hiring now</span></h1>
+  <p class="sub"><a href="#">tessellate.dev</a> &nbsp;·&nbsp; Seed &nbsp;·&nbsp; <span class="num">11</span> people &nbsp;·&nbsp; Austin, TX</p>
+
+  <dl class="meta num">
+    <div><dt>Last checked</dt>Sep 11, 2026</div>
+    <div><dt>Signal seen</dt>Sep 9 — careers page</div>
+    <div><dt>Confidence</dt>High</div>
+  </dl>
+
+  <section data-n="01">
+    <h2>Who they are</h2>
+    <p class="lede">Developer tooling for schema migrations — a safety layer that catches breaking database changes before they reach production.</p>
+    <p class="sub">Software startup, hiring engineers, no recruiter on staff. Exact target.</p>
+  </section>
+
+  <section data-n="02">
+    <h2>The hiring signal</h2>
+    <ul>
+      <li><b>Open roles</b><span>3 backend, 1 founding designer <span class="src">— careers page, Sep 9</span></span></li>
+      <li><b>How hot</b><span>All four posted inside eight days. Moving fast.</span></li>
+      <li><b>Pain signal</b><span>Raised $6M seed in July. Founder tweeted about spending "half of every week on first-round calls."</span></li>
+    </ul>
+  </section>
+
+  <section data-n="03">
+    <h2>The way in</h2>
+    <ul>
+      <li><b>Right person</b><span>Marisol Okonkwo — co-founder &amp; CTO. Eleven people, no Head of Talent, so she owns hiring.</span></li>
+      <li><b>Email</b><span>marisol@tessellate.dev <span class="src">— verified, high confidence</span></span></li>
+    </ul>
+    <div class="warm">
+      <b>Warm path.</b> Dev Difference alum Priya Raghunathan worked with Marisol at Stripe, 2021–2023. Ask Priya for the intro before sending anything cold.
+    </div>
+  </section>
+
+  <section data-n="04">
+    <h2>The strategy</h2>
+    <p><b>The angle.</b> She's eleven people, just posted four roles, and has said publicly that first-round calls are eating her week. Buddy is the resume-screen layer so founders stop doing that. Lead with the time, not the product.</p>
+    <p><b>Likely objection.</b> "We're too small to need this." Counter: it's precisely at four-roles-at-once that founder screening stops scaling, and the alternative is a contract recruiter at 20%.</p>
+    <p><b>Play.</b> Warm — go through Priya. Do not send cold; the intro is worth the two-day delay.</p>
+  </section>
+
+  <section data-n="05">
+    <h2>The draft</h2>
+    <div class="draft">
+      <p>Marisol — Priya Raghunathan suggested I reach out.</p>
+      <p>Saw you put up three backend roles and a founding designer in about a week, which at eleven people probably means you're the one doing first-round screens. We built Buddy for exactly that stretch: it handles the resume screen so founders only take calls worth taking.</p>
+      <p>Worth fifteen minutes?</p>
+    </div>
+    <div class="actions">
+      <button class="primary">Copy draft</button>
+      <button>Regenerate</button>
+      <button>Mark contacted</button>
+      <span class="hint">Personalization sourced from careers page + founder post, Sep 9.</span>
+    </div>
+  </section>
+
+  <footer>
+    <span>Packet generated <span class="num">Sep 11, 2026 · 3:58 PM</span></span>
+    <span><span class="num">4</span> sources</span>
+  </footer>
+</main>
+
+</body>
+</html>
