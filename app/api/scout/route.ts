@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scout } from "@/lib/scout";
 import { asDomain, resolveName } from "@/lib/resolve";
-import { listByStatus } from "@/lib/repo";
+import { listByStatus, listQueue, withHeat } from "@/lib/repo";
 import { isAuthed } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET /api/scout?queue=hiring -> the hiring queue for the Queue view.
+// GET /api/scout?queue=hiring|all -> ripeness-sorted queue for the Queue view.
 export async function GET(req: NextRequest) {
   if (!isAuthed(req)) {
     return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
@@ -15,7 +15,11 @@ export async function GET(req: NextRequest) {
   const q = new URL(req.url).searchParams.get("queue");
   if (q) {
     try {
-      const companies = await listByStatus(q === "hiring" ? "hiring" : "watching", 60);
+      // "all" spans every open status, ripeness-ordered; "hiring" narrows to
+      // confirmed-hiring. Both surface the ripest lead first.
+      const rows =
+        q === "all" ? await listQueue(60) : await listByStatus("hiring", 60);
+      const companies = rows.map(withHeat);
       return NextResponse.json({ ok: true, companies });
     } catch (e: any) {
       return NextResponse.json({ ok: false, error: e.message, companies: [] }, { status: 500 });

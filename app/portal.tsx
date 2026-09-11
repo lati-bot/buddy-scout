@@ -309,13 +309,13 @@ const liB: React.CSSProperties = { fontWeight: 600, minWidth: 110, color: C.ink2
 
 /* ---------- Queue ---------- */
 function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolean }) {
-  const [rows, setRows] = useState<Company[] | null>(null);
+  const [rows, setRows] = useState<(Company & { heat?: string })[] | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
-      const r = await fetch("/api/scout?queue=hiring");
+      const r = await fetch("/api/scout?queue=all");
       const j = await r.json();
       setRows(j.companies ?? []);
     } catch { setRows([]); }
@@ -323,25 +323,41 @@ function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolea
   }
   if (rows === null && !loading) load();
 
+  const heatColor: Record<string, string> = {
+    hot: C.accent, warm: "#8a6d1f", cool: C.ink3, cold: C.ink3,
+  };
+  const heatBg: Record<string, string> = {
+    hot: C.wash, warm: "#f3ecd8", cool: "none", cold: "none",
+  };
+
   return (
     <>
       <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3 }}>Queue</div>
-      <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>Hiring now</h1>
-      <p style={{ color: C.ink2, fontSize: 14 }}>Companies with a confirmed open-role signal. Newest checks first.</p>
+      <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>Ripest first</h1>
+      <p style={{ color: C.ink2, fontSize: 14 }}>Sorted by how ready each lead is to act on — freshest hiring signal, most open roles, warm paths up top. Hot leads are rechecked daily.</p>
       {loading && <p style={{ color: C.ink3, marginTop: 20 }}>Loading…</p>}
       {rows && rows.length === 0 && <p style={{ color: C.ink3, marginTop: 20 }}>Nothing in the queue yet. Run a lookup to start filling it.</p>}
       {rows && rows.length > 0 && (
         <ul style={{ margin: "22px 0 0", padding: 0, listStyle: "none" }}>
-          {rows.map((c) => (
-            <li key={c.domain} onClick={() => !busy && onOpen(c.domain)} style={{
-              padding: "12px 0", borderBottom: `1px solid ${C.rule}`, cursor: "pointer",
-              display: "flex", gap: 14, alignItems: "baseline",
-            }}>
-              <b style={{ fontWeight: 600, minWidth: 170 }}>{c.name ?? c.domain}</b>
-              <span style={{ color: C.ink2, fontSize: 14, flex: 1 }}>{c.hiring.roles.slice(0, 3).join(", ") || c.domain}</span>
-              <span style={{ color: C.ink3, fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{fmtDate(c.lastCheckedAt)}</span>
-            </li>
-          ))}
+          {rows.map((c) => {
+            const heat = c.heat ?? "cold";
+            return (
+              <li key={c.domain} onClick={() => !busy && onOpen(c.domain)} style={{
+                padding: "12px 0", borderBottom: `1px solid ${C.rule}`, cursor: "pointer",
+                display: "flex", gap: 14, alignItems: "baseline",
+              }}>
+                <span style={{
+                  fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 600,
+                  padding: "2px 7px", borderRadius: 2, minWidth: 42, textAlign: "center",
+                  color: heatColor[heat], background: heatBg[heat],
+                  border: `1px solid ${heat === "hot" ? C.accent : heat === "warm" ? "#d8c896" : C.rule}`,
+                }}>{heat}</span>
+                <b style={{ fontWeight: 600, minWidth: 150 }}>{c.name ?? c.domain}</b>
+                <span style={{ color: C.ink2, fontSize: 14, flex: 1 }}>{c.hiring.roles.slice(0, 3).join(", ") || c.domain}</span>
+                <span style={{ color: C.ink3, fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{fmtDate(c.lastCheckedAt)}</span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </>

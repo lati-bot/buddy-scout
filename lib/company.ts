@@ -53,6 +53,74 @@ export interface Company {
   updatedAt: string;
 }
 
+// ---------- Heat model ----------
+// Heat drives two things Jolene actually cares about:
+//   1. Recheck cadence — hot companies checked ~daily, cold ones rarely.
+//   2. Queue order — the ripest lead sits at the top when she opens the app.
+// A company is HOT when it's hiring with a fresh signal and untouched by outreach.
+// It cools as the signal ages or once she's already contacted them.
+
+export type Heat = "hot" | "warm" | "cool" | "cold";
+
+// Days between rechecks per heat tier. Hot = daily so she never pitches a dead
+// role; cold = biweekly so we don't waste spend on dormant companies.
+export const RECHECK_DAYS: Record<Heat, number> = {
+  hot: 1,
+  warm: 3,
+  cool: 7,
+  cold: 14,
+};
+
+function daysSince(iso: string | null): number {
+  if (!iso) return Infinity;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return Infinity;
+  return (Date.now() - t) / 86_400_000;
+}
+
+/**
+ * Classify a company's heat from its current signal.
+ * - Already contacted / closed -> cool/cold (she's handled it; low re-check need).
+ * - Not hiring -> cold (nothing to pitch; check rarely).
+ * - Hiring: hotness decays with the age of the signal.
+ */
+export function heatOf(c: Company): Heat {
+  if (c.status === "closed") return "cold";
+  if (c.status === "contacted") return "cool";
+  if (!c.hiring.isHiring) return "cold";
+  const age = daysSince(c.hiring.seenAt);
+  if (age <= 3) return "hot";
+  if (age <= 10) return "warm";
+  if (age <= 21) return "cool";
+  return "cold";
+}
+
+/**
+ * Ripeness score for queue ordering — higher = surface first.
+ * Jolene opens the app and the freshest, most-actionable lead is on top.
+ * Rewards: fresh hiring signal, more open roles, a warm path, a known contact.
+ * Penalizes: staleness, already-contacted.
+ */
+export function ripeness(c: Company): number {
+  let s = 0;
+  const heat = heatOf(c);
+  s += { hot: 100, warm: 60, cool: 25, cold: 0 }[heat];
+  if (c.hiring.isHiring) s += Math.min(c.hiring.roles.length, 10) * 3; // more roles = bigger opening
+  if (c.warmPath?.connected) s += 40;                                   // warm intro is gold
+  if (c.contact.email) s += 10;                                         // ready to reach
+  if (c.status === "contacted") s -= 50;                                 // already worked
+  if (c.status === "closed") s -= 200;
+  // Recency nudge: a signal seen today edges out one seen last week.
+  s -= Math.min(daysSince(c.hiring.seenAt), 30);
+  return s;
+}
+
+/** True if this company is due for a recheck given its heat tier. */
+export function isDueForRecheck(c: Company): boolean {
+  const due = RECHECK_DAYS[heatOf(c)];
+  return daysSince(c.lastCheckedAt) >= due;
+}
+
 /** Normalize any raw domain string into the canonical ID form. */
 export function normalizeDomain(input: string): string {
   let d = input.trim().toLowerCase();

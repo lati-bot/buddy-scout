@@ -2,7 +2,15 @@
 // Keyed on `domain`. Upsert is domain-idempotent (auto-dedupe).
 
 import { getContainer } from "./cosmos";
-import { Company, CompanyStatus, newCompany, normalizeDomain } from "./company";
+import {
+  Company,
+  CompanyStatus,
+  newCompany,
+  normalizeDomain,
+  isDueForRecheck,
+  ripeness,
+  heatOf,
+} from "./company";
 
 /** Fetch a company by domain, or null if not tracked yet. */
 export async function getCompany(domainInput: string): Promise<Company | null> {
@@ -49,33 +57,57 @@ export async function listByStatus(
   const { resources } = await container.items
     .query<Company>({
       query:
-        "SELECT * FROM c WHERE c.status = @status ORDER BY c.updatedAt DESC OFFSET 0 LIMIT @max",
+        "SELECT * FROM c WHERE c.status = @status OFFSET 0 LIMIT @max",
       parameters: [
         { name: "@status", value: status },
         { name: "@max", value: max },
       ],
     })
     .fetchAll();
-  return resources;
+  // Ripeness sort (client-side): the freshest, most-actionable lead sits on top
+  // when Jolene opens the queue — not just newest-updated.
+  return resources.sort((a, b) => ripeness(b) - ripeness(a));
 }
 
-/** Companies due for a hiring re-check (older than `days`). */
-export async function listDueForRecheck(days = 14, max = 100): Promise<Company[]> {
-  const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
+/**
+ * Companies due for a heat-tiered recheck.
+ * Instead of one flat window, each company is due based on its heat:
+ * hot ~daily, warm ~3d, cool ~weekly, cold ~biweekly (see RECHECK_DAYS).
+ * We over-fetch loosely (anything not checked in the last day) then let the
+ * per-company heat rule decide, and order hottest-first so the most
+ * time-sensitive leads get refreshed first within the batch cap.
+ */
+export async function listDueForRecheck(_days = 14, max = 100): Promise<Company[]> {
+  // Loose DB filter: nothing checked in the last ~day can possibly be due
+  // (hot tier = 1 day is the tightest cadence). Keeps the read cheap.
+  const cutoff = new Date(Date.now() - 1 * 86400_000).toISOString();
   const container = await getContainer();
   const { resources } = await container.items
     .query<Company>({
       query:
-        "SELECT * FROM c WHERE (NOT IS_DEFINED(c.lastCheckedAt) OR IS_NULL(c.lastCheckedAt) OR c.lastCheckedAt < @cutoff) OFFSET 0 LIMIT @max",
-      parameters: [
-        { name: "@cutoff", value: cutoff },
-        { name: "@max", value: max },
-      ],
+        "SELECT * FROM c WHERE (NOT IS_DEFINED(c.lastCheckedAt) OR IS_NULL(c.lastCheckedAt) OR c.lastCheckedAt < @cutoff) OFFSET 0 LIMIT 400",
+      parameters: [{ name: "@cutoff", value: cutoff }],
     })
     .fetchAll();
-  // Sort client-side (Cosmos ORDER BY on nullable fields is unreliable on
-  // serverless): oldest / never-checked first, so the stalest get seen soonest.
+  // Apply the per-heat cadence rule, then refresh the hottest (ripest) first.
   return resources
-    .sort((a, b) => (a.lastCheckedAt ?? "").localeCompare(b.lastCheckedAt ?? ""))
+    .filter((c) => isDueForRecheck(c))
+    .sort((a, b) => ripeness(b) - ripeness(a))
     .slice(0, max);
+}
+
+/** Whole queue, ripeness-ordered — for a queue view that spans statuses. */
+export async function listQueue(max = 60): Promise<Company[]> {
+  const container = await getContainer();
+  const { resources } = await container.items
+    .query<Company>({
+      query: "SELECT * FROM c WHERE c.status != 'closed' OFFSET 0 LIMIT 400",
+    })
+    .fetchAll();
+  return resources.sort((a, b) => ripeness(b) - ripeness(a)).slice(0, max);
+}
+
+/** Attach computed heat to a company for API responses (not persisted). */
+export function withHeat(c: Company): Company & { heat: string; ripeness: number } {
+  return { ...c, heat: heatOf(c), ripeness: Math.round(ripeness(c)) };
 }
