@@ -1,0 +1,162 @@
+[
+  {
+    "company": "Protege",
+    "domain": "withprotege.ai",
+    "contactName": "Bobby Samuels",
+    "contactTitle": "Co-Founder & CEO",
+    "role": "Financial Operations Associate",
+    "bucket": "founder-led"
+  },
+  {
+    "company": "Range",
+    "domain": "range.com",
+    "contactName": "Fahad Hassan",
+    "contactTitle": "Co-founder & CEO",
+    "role": "Investment Operations Associate",
+    "bucket": "founder-led"
+  },
+  {
+    "company": "Tennr",
+    "domain": "tennr.com",
+    "contactName": "Geraldine Pierre",
+    "contactTitle": "Talent Acquisition Manager I Head of Talent",
+    "role": "Talent Acquisition Coordinator",
+    "bucket": "mid"
+  },
+  {
+    "company": "Numeric",
+    "domain": "numeric.io",
+    "contactName": "Parker Gilbert",
+    "contactTitle": "Co-Founder, CEO",
+    "role": "Business Development Representative",
+    "bucket": "mid"
+  },
+  {
+    "company": "Norm AI",
+    "domain": "norm.ai",
+    "contactName": "Tessa Corbishley",
+    "contactTitle": "Talent Acquisition @ Norm Ai",
+    "role": "Associate, Tax",
+    "bucket": "mid"
+  },
+  {
+    "company": "Warp",
+    "domain": "warp.co",
+    "contactName": "Ayush Sharma",
+    "contactTitle": "Founder and CEO",
+    "role": "Customer Experience Specialist",
+    "bucket": "mid"
+  },
+  {
+    "company": "Rain",
+    "domain": "rain.xyz",
+    "contactName": "Farooq Malik",
+    "contactTitle": "Co-founder and CEO",
+    "role": "Compliance Analyst",
+    "bucket": "mid"
+  },
+  {
+    "company": "Rogo",
+    "domain": "rogo.ai",
+    "contactName": "Gabriel Stengel",
+    "contactTitle": "Co-Founder and CEO",
+    "role": "Sales Development Representative",
+    "bucket": "mid"
+  },
+  {
+    "company": "Hebbia AI",
+    "domain": "hebbia.com",
+    "contactName": "Scott Bianco",
+    "contactTitle": "Head of Talent at Hebbia",
+    "role": "Account Development Representative",
+    "bucket": "mid"
+  },
+  {
+    "company": "Lithic",
+    "domain": "lithic.com",
+    "contactName": "Emily Rhodes",
+    "contactTitle": "Recruiting @ Lithic",
+    "role": "Business Operations Associate",
+    "bucket": "mid"
+  },
+  {
+    "company": "Imprint",
+    "domain": "imprint.co",
+    "contactName": "Holly Esler Stup",
+    "contactTitle": "Talent Acquisition",
+    "role": "Fraud Operations Specialist",
+    "bucket": "mid"
+  },
+  {
+    "company": "Garner Health",
+    "domain": "garnerhealth.com",
+    "contactName": "Stephanie Ladden",
+    "contactTitle": "Director, Technical Recruiting",
+    "role": "Associate Software Engineer",
+    "bucket": "team-led"
+  },
+  {
+    "company": "EliseAI",
+    "domain": "eliseai.com",
+    "contactName": "Alexandra Short",
+    "contactTitle": "Talent Acquisition @ EliseAI",
+    "role": "Recruiting Coordinator",
+    "bucket": "team-led"
+  },
+  {
+    "company": "Boulevard",
+    "domain": "joinblvd.com",
+    "contactName": "Dina Marei",
+    "contactTitle": "Talent Acquisition @ Boulevard",
+    "role": "Onboarding Specialist I",
+    "bucket": "team-led"
+  },
+  {
+    "company": "Hightouch",
+    "domain": "hightouch.com",
+    "contactName": "Hannah Foskett",
+    "contactTitle": "Senior GTM Recruiter @ Hightouch",
+    "role": "Sales Development Representative",
+    "bucket": "team-led"
+  },
+  {
+    "company": "Pontera",
+    "domain": "pontera.com",
+    "contactName": "Keren Kozar",
+    "contactTitle": "Director of People Strategy",
+    "role": "Business Development Representative",
+    "bucket": "team-led"
+  },
+  {
+    "company": "GlossGenius",
+    "domain": "glossgenius.com",
+    "contactName": "Lexi Marek",
+    "contactTitle": "Senior Manager, Recruiting Operations and Emerging Talent",
+    "role": "Recruiting Associate",
+    "bucket": "team-led"
+  },
+  {
+    "company": "Maven Clinic",
+    "domain": "mavenclinic.com",
+    "contactName": "Richard L. Muniz",
+    "contactTitle": "Head of Talent Acquisition",
+    "role": "Payment Operations Associate",
+    "bucket": "big"
+  },
+  {
+    "company": "Headway",
+    "domain": "headway.co",
+    "contactName": "Ashley Nisenson",
+    "contactTitle": "Interim Head of Talent",
+    "role": "Customer Care Associate",
+    "bucket": "big"
+  },
+  {
+    "company": "Huntress",
+    "domain": "huntress.com",
+    "contactName": "Kayla DelleBovi",
+    "contactTitle": "Senior Corporate Recruiter",
+    "role": "Sales Development Representative",
+    "bucket": "big"
+  }
+]
