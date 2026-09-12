@@ -18,6 +18,7 @@ type Packet = {
   whoTheyAre: string; hiringSignal: string; wayIn: string;
   strategy: { angle: string; likelyObjection: string; counter: string };
   draft: string; citedFactIds: string[];
+  citations?: { id: string; label: string; ref: string; claim: string }[];
   sources: { kind: string; ref: string; fetchedAt: string }[];
   tier: string; generatedAt: string;
 };
@@ -337,15 +338,34 @@ function PacketView(props: {
             <div style={{ background: "#fff", border: `1px solid ${C.rule}`, padding: "18px 20px", fontSize: 14, lineHeight: 1.65, marginTop: 10, whiteSpace: "pre-wrap" }}>
               {packet.draft}
             </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
+            <div style={{ marginTop: 14 }}>
               <button onClick={onCopy} style={{
                 font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
                 border: `1px solid ${C.accent}`, background: C.accent, color: "#fff", fontWeight: 550,
               }}>{copied ? "Copied ✓" : "Copy draft"}</button>
-              <span style={{ color: C.ink3, fontSize: 12.5 }}>
-                Cited facts: {packet.citedFactIds.join(", ") || "—"}
-              </span>
             </div>
+            {packet.citations && packet.citations.length > 0 ? (
+              <div style={{ marginTop: 16, borderTop: `1px solid ${C.rule}`, paddingTop: 12 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.ink3, marginBottom: 8 }}>Backed by</div>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {packet.citations.map((c) => (
+                    <li key={c.id} style={{ margin: "0 0 7px", fontSize: 12.5, lineHeight: 1.5, display: "flex", gap: 8 }}>
+                      <span style={{ flex: "none", fontSize: 11, fontWeight: 600, color: C.accent, background: C.wash, border: `1px solid ${C.accent}`, borderRadius: 2, padding: "1px 6px", height: "fit-content" }}>{c.label}</span>
+                      <span style={{ color: C.ink2 }}>
+                        {c.claim}
+                        {c.ref && /^https?:\/\//.test(c.ref) && (
+                          <>{" "}<a href={c.ref} target="_blank" rel="noreferrer" style={{ color: C.ink3, textDecoration: "underline" }}>verify</a></>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div style={{ marginTop: 12, color: C.ink3, fontSize: 12.5 }}>
+                Every claim in this draft traces to a verified fact.
+              </div>
+            )}
           </Section>
         </>
       )}

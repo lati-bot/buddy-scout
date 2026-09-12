@@ -17,9 +17,19 @@ export interface Packet {
   strategy: { angle: string; likelyObjection: string; counter: string };
   draft: string;
   citedFactIds: string[];   // which facts the writer used
+  citations: Citation[];    // resolved: each cited id -> its readable source (for the UI)
   sources: Source[];
   tier: Tier;
   generatedAt: string;
+}
+
+// A cited fact resolved to something Jolene can actually read/click, so the packet
+// footer shows "Careers page", "LinkedIn", etc. with a link — not opaque "f1, f2".
+export interface Citation {
+  id: string;               // the fact id ("f3")
+  label: string;            // human source label ("Careers page", "LinkedIn")
+  ref: string;              // URL or identifier Jolene can check
+  claim: string;            // the atomic fact this id backs
 }
 
 const SYSTEM = `You write sales packets for Dev Difference, which sells "Buddy" — an AI resume-screening / hiring-support product — to software startups that are actively hiring.
@@ -61,7 +71,7 @@ export async function generatePacket(
       `Write the packet. Cite fact ids for every specific claim.`,
   });
 
-  const parsed = JSON.parse(raw) as Omit<Packet, "sources" | "tier" | "generatedAt">;
+  const parsed = JSON.parse(raw) as Omit<Packet, "sources" | "tier" | "generatedAt" | "citations">;
 
   // Trust floor: the packet can never claim more confidence than the facts support.
   const factFloor = bundleConfidence(bundle);
@@ -69,11 +79,35 @@ export async function generatePacket(
   const confidence =
     order[parsed.confidence] < order[factFloor] ? parsed.confidence : factFloor;
 
+  // Resolve cited fact ids to readable sources so the UI can show "Careers page" /
+  // "LinkedIn" with a link instead of opaque "f1, f2". Ids the writer cited that
+  // don't exist are dropped (never fabricate a citation).
+  const byId = new Map(bundle.facts.map((f) => [f.id, f]));
+  const citations: Citation[] = (parsed.citedFactIds ?? [])
+    .map((id) => byId.get(id))
+    .filter((f): f is NonNullable<typeof f> => Boolean(f))
+    .map((f) => ({ id: f.id, label: sourceLabel(f.source.kind), ref: f.source.ref, claim: f.claim }));
+
   return {
     ...parsed,
     confidence,
+    citations,
     sources: bundleSources(bundle),
     tier,
     generatedAt: new Date().toISOString(),
   };
+}
+
+// Human labels for the citation footer. Keeps Jolene's eyes on "where", not jargon.
+function sourceLabel(kind: Source["kind"]): string {
+  switch (kind) {
+    case "ats": return "ATS board";
+    case "careers-page": return "Careers page";
+    case "prospeo": return "Prospeo";
+    case "linkedin-csv": return "LinkedIn";
+    case "web": return "Web";
+    case "newsletter": return "Newsletter";
+    case "user": return "You";
+    default: return "Source";
+  }
 }
