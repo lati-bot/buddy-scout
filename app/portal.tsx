@@ -15,9 +15,10 @@ const C = {
 type Candidate = { domain: string; name: string; hint?: string };
 type Packet = {
   confidence: "high" | "medium" | "thin";
+  verdict?: { call: "chase" | "watch" | "skip"; line: string };
   whoTheyAre: string; hiringSignal: string; wayIn: string;
   strategy: { angle: string; likelyObjection: string; counter: string };
-  draft: string; citedFactIds: string[];
+  hook?: string; draft: string; citedFactIds: string[];
   citations?: { id: string; label: string; ref: string; claim: string }[];
   sources: { kind: string; ref: string; fetchedAt: string }[];
   tier: string; generatedAt: string;
@@ -148,6 +149,7 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
           <PacketView
             company={company} packet={packet} cached={cached} warmPath={warmPath}
             copied={copied} onCopy={() => { if (packet) { navigator.clipboard.writeText(packet.draft); setCopied(true); setTimeout(() => setCopied(false), 1600); } }}
+            onCopyText={(t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 1600); }}
             onBack={() => setView("lookup")}
             buyerCard={buyerCard} buyerBusy={buyerBusy} buyerErr={buyerErr}
             onFindBuyer={() => company && findBuyer(company)}
@@ -239,11 +241,9 @@ function LookupView(props: {
 function PacketView(props: {
   company: Company; packet: Packet | null; cached: boolean;
   warmPath: WarmPath | null;
-  copied: boolean; onCopy: () => void; onBack: () => void;
-  buyerCard: BuyerCard | null; buyerBusy: boolean; buyerErr: string | null; onFindBuyer: () => void;
+  copied: boolean; onCopy: () => void; onCopyText: (t: string) => void; onBack: () => void;  buyerCard: BuyerCard | null; buyerBusy: boolean; buyerErr: string | null; onFindBuyer: () => void;
 }) {
-  const { company, packet, cached, warmPath, copied, onCopy, onBack, buyerCard, buyerBusy, buyerErr, onFindBuyer } = props;
-  const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
+  const { company, packet, cached, warmPath, copied, onCopy, onCopyText, onBack, buyerCard, buyerBusy, buyerErr, onFindBuyer } = props;  const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
   const conf = packet?.confidence ?? (company.hiring.isHiring ? "medium" : "thin");
   const hiring = company.hiring.isHiring;
 
@@ -287,6 +287,22 @@ function PacketView(props: {
           </div>
         ))}
       </dl>
+
+      {packet?.verdict?.line && (
+        <div style={{
+          margin: "18px 0 4px", padding: "14px 16px", borderRadius: 3,
+          border: `1px solid ${C.rule}`,
+          background: packet.verdict.call === "chase" ? "#f0f7f0" : packet.verdict.call === "skip" ? "#f7f0f0" : "#f7f5f0",
+        }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase",
+            color: packet.verdict.call === "chase" ? "#2c6e2c" : packet.verdict.call === "skip" ? "#9a3b3b" : "#8a6d2c",
+          }}>{packet.verdict.call === "chase" ? "▶ Chase" : packet.verdict.call === "skip" ? "✕ Skip" : "◉ Watch"}</span>
+          <p style={{ fontSize: 17, fontWeight: 560, lineHeight: 1.4, margin: "6px 0 0", maxWidth: "64ch", color: C.ink }}>
+            {packet.verdict.line}
+          </p>
+        </div>
+      )}
 
       <Section n="01" title="Who they are">
         <p style={{ fontSize: 16.5, lineHeight: 1.5, margin: "0 0 10px", maxWidth: "62ch" }}>
@@ -338,14 +354,29 @@ function PacketView(props: {
           </Section>
 
           <Section n="05" title="The draft">
-            <div style={{ background: "#fff", border: `1px solid ${C.rule}`, padding: "18px 20px", fontSize: 14, lineHeight: 1.65, marginTop: 10, whiteSpace: "pre-wrap" }}>
+            {packet.hook && (
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.ink3, marginBottom: 6 }}>First message — the hook (send this)</div>
+                <div style={{ background: C.wash, border: `1px solid ${C.accent}`, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, whiteSpace: "pre-wrap", color: C.ink }}>
+                  {packet.hook}
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <button onClick={() => onCopyText(packet.hook || "")} style={{
+                    font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
+                    border: `1px solid ${C.accent}`, background: C.accent, color: "#fff", fontWeight: 550,
+                  }}>{copied ? "Copied ✓" : "Copy hook"}</button>
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.ink3, marginBottom: 6 }}>Fuller follow-up</div>
+            <div style={{ background: "#fff", border: `1px solid ${C.rule}`, padding: "18px 20px", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
               {packet.draft}
             </div>
             <div style={{ marginTop: 14 }}>
               <button onClick={onCopy} style={{
                 font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
-                border: `1px solid ${C.accent}`, background: C.accent, color: "#fff", fontWeight: 550,
-              }}>{copied ? "Copied ✓" : "Copy draft"}</button>
+                border: `1px solid ${C.rule}`, background: "#fff", color: C.ink, fontWeight: 550,
+              }}>{copied ? "Copied ✓" : "Copy follow-up"}</button>
             </div>
             {packet.citations && packet.citations.length > 0 ? (
               <div style={{ marginTop: 16, borderTop: `1px solid ${C.rule}`, paddingTop: 12 }}>

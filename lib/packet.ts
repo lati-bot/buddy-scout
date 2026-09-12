@@ -11,10 +11,12 @@ import { FactsBundle, bundleToPrompt, bundleConfidence, bundleSources, Source } 
 
 export interface Packet {
   confidence: "high" | "medium" | "thin";
+  verdict: { call: "chase" | "watch" | "skip"; line: string };
   whoTheyAre: string;
   hiringSignal: string;
   wayIn: string;
   strategy: { angle: string; likelyObjection: string; counter: string };
+  hook: string;   // short first-touch: 1-2 curious sentences, their pain, NO product pitch
   draft: string;
   citedFactIds: string[];   // which facts the writer used
   citations: Citation[];    // resolved: each cited id -> its readable source (for the UI)
@@ -43,15 +45,21 @@ If the facts are thin, say so plainly and keep claims general rather than invent
 
 Voice: sharp human salesperson. No corporate buzzwords, no filler, no "in today's fast-paced world", no em-dash abuse. Short, direct, real. Vary sentence length.
 
-The outreach draft: 3-4 sentences, copy-paste ready, references something REAL and specific FROM THE FACTS, leads with the angle (not "Hi I'm from Dev Difference"), sounds like a person wrote it.
+THE VERDICT (most important line on the card): a decisive call — "chase", "watch", or "skip" — plus ONE sentence telling Jolene exactly what to do and why, naming the sharpest signal from the facts. Example: "Chase this. They've posted 40 GTM roles in two weeks — peak screening pain." Be decisive. "chase" when there's a real, active hiring signal; "watch" when thin/unclear; "skip" when no signal.
+
+THE HOOK (the first message she actually sends): 1-2 sentences of genuine curiosity about THEIR specific pain, drawn from the facts. It must NOT mention Buddy, Dev Difference, or any product/feature. Its only job is to earn a reply. Example: "You've posted 40 GTM roles in two weeks. How's your team screening that volume without it eating everyone's week?" Personal, curious, specific. This is NOT a pitch.
+
+THE DRAFT (the fuller follow-up / fallback): 3-4 sentences, copy-paste ready, references something REAL and specific FROM THE FACTS, leads with the angle (not "Hi I'm from Dev Difference"), sounds like a person wrote it. This is where Buddy can be named.
 
 Return ONLY a JSON object:
 {
   "confidence": "high"|"medium"|"thin",
+  "verdict": { "call": "chase"|"watch"|"skip", "line": string },
   "whoTheyAre": string,
   "hiringSignal": string,
   "wayIn": string,
   "strategy": { "angle": string, "likelyObjection": string, "counter": string },
+  "hook": string,
   "draft": string,
   "citedFactIds": string[]
 }`;
@@ -90,9 +98,15 @@ export async function generatePacket(
 
   return {
     ...parsed,
+    verdict: {
+      call: (parsed.verdict?.call === "chase" || parsed.verdict?.call === "skip")
+        ? parsed.verdict.call : (parsed.verdict?.call ?? "watch"),
+      line: stripFactMarkers(parsed.verdict?.line ?? ""),
+    },
     whoTheyAre: stripFactMarkers(parsed.whoTheyAre),
     hiringSignal: stripFactMarkers(parsed.hiringSignal),
     wayIn: stripFactMarkers(parsed.wayIn),
+    hook: stripFactMarkers(parsed.hook ?? ""),
     draft: stripFactMarkers(parsed.draft),
     strategy: {
       angle: stripFactMarkers(parsed.strategy?.angle ?? ""),
