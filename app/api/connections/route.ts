@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Bad request." }, { status: 400 });
   }
   const csv: string = body?.csv || "";
+  const owner: string = (body?.owner || "Tomi").toString().trim() || "Tomi";
   if (!csv || csv.length < 20) {
     return NextResponse.json(
       { ok: false, error: "Send the CSV text in { csv }." },
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     );
   }
   try {
-    const conns = parseConnectionsCsv(csv);
+    const conns = parseConnectionsCsv(csv, owner);
     if (!conns.length) {
       return NextResponse.json(
         { ok: false, error: "No connections parsed — is this a LinkedIn Connections.csv?" },
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
     const strong = conns.filter((c) => c.strength >= 70).length;
     return NextResponse.json({
       ok: true,
+      owner,
       ingested: n,
       companies,
       strongIntros: strong,

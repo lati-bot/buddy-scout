@@ -22,7 +22,7 @@
 // "likely" and show the reasoning — we never dress a guess as a fact.
 
 import { complete } from "./llm";
-import { connectionsAtCompany, companyKey, type Connection } from "./connections";
+import { connectionsAtCompany, ownersOf, companyKey, type Connection } from "./connections";
 import type { Company } from "./company";
 
 /* ------------------------------------------------------------------ *
@@ -45,8 +45,10 @@ export interface BuyerCandidate {
 
 export interface BuyerWarm {
   direct: boolean;              // is the buyer THEMSELF in the network?
+  directOwners: string[];       // which team members know the buyer directly
   count: number;                // how many people we know at the company
-  best: Array<{ name: string; position: string; url: string; strength: number }>;
+  owners: string[];             // which team members reach this company at all
+  best: Array<{ name: string; position: string; url: string; strength: number; owner: string }>;
 }
 
 export interface Location {
@@ -152,14 +154,16 @@ export async function buildBuyerCard(
 
   // --- 1. WARM PATH (free, instant, our edge — do it first). --------------
   const conns = await connectionsAtCompany(name);
+  const teamOwners = ownersOf(conns);
   const warmTop = conns.slice(0, 5).map((c) => ({
     name: c.name,
     position: c.position,
     url: c.url,
     strength: c.strength,
+    owner: c.owner,
   }));
   const companyWarm: BuyerWarm | null = conns.length
-    ? { direct: false, count: conns.length, best: warmTop }
+    ? { direct: false, directOwners: [], count: conns.length, owners: teamOwners, best: warmTop }
     : null;
 
   // --- 2. FIND THE BUYER — real sources only. ---------------------------
@@ -226,8 +230,8 @@ export async function buildBuyerCard(
   const cands: (BuyerCandidate & { nearBaseScore?: number })[] = [];
   for (const e of extracted) {
     const fit = roleFitOf(e.title || "");
-    // Is this exact person in the network?
-    const directMatch = conns.find((c) => sameName(c.name, e.name));
+    // Is this exact person in the network — and if so, WHO on the team knows them?
+    const directMatches = conns.filter((c) => sameName(c.name, e.name));
     let city = e.city ?? null;
     let cityBasis: BuyerCandidate["cityBasis"] = city ? "public" : "unknown";
     // Founder-likely-at-HQ assumption — LABELED, never presented as fact.
@@ -237,8 +241,8 @@ export async function buildBuyerCard(
       notes.push(`${e.name ?? "Founder"}'s city assumed from company HQ (${hqGuess}) — not individually confirmed.`);
     }
     const near = baseFor(city);
-    const warm: BuyerWarm | null = directMatch
-      ? { direct: true, count: conns.length, best: warmTop }
+    const warm: BuyerWarm | null = directMatches.length
+      ? { direct: true, directOwners: [...new Set(directMatches.map((c) => c.owner))], count: conns.length, owners: teamOwners, best: warmTop }
       : companyWarm;
 
     cands.push({
@@ -286,12 +290,17 @@ export async function buildBuyerCard(
   };
 
   // --- 5. Warm summary + overall confidence floor. ---------------------
-  const directName = ranked.find((b) => b.warm?.direct)?.name;
-  const warmSummary = directName
-    ? `You already know ${directName} directly — that's your intro. Skip cold entirely.`
+  // Multi-owner: name WHO on the team holds the warm path so Jolene knows whether
+  // it's her own intro (just reach out) or someone else's (ask them to broker).
+  const directBuyer = ranked.find((b) => b.warm?.direct);
+  const directOwners = directBuyer?.warm?.directOwners ?? [];
+  const fmtOwners = (o: string[]) =>
+    o.length === 1 ? o[0] : o.length === 2 ? `${o[0]} and ${o[1]}` : `${o.slice(0, -1).join(", ")} and ${o[o.length - 1]}`;
+  const warmSummary = directBuyer && directOwners.length
+    ? `${fmtOwners(directOwners)} ${directOwners.length === 1 ? "knows" : "know"} ${directBuyer.name} directly — that's the intro. ${directOwners.length === 1 ? (isSelf(directOwners[0]) ? "Reach out yourself." : `Ask ${directOwners[0]} to broker it.`) : "Go through whichever of them you're closest to."}`
     : conns.length
-    ? `You know ${conns.length} ${conns.length === 1 ? "person" : "people"} at ${name}${warmTop[0] ? ` (strongest: ${warmTop[0].name}, ${warmTop[0].position})` : ""} — ask for a warm intro to the buyer.`
-    : `No mutual connection at ${name} yet — this is a cold approach. Lead with the specific hiring signal.`;
+    ? `${teamOwners.length > 1 ? `${fmtOwners(teamOwners)} know` : `${fmtOwners(teamOwners)} knows`} ${conns.length} ${conns.length === 1 ? "person" : "people"} at ${name}${warmTop[0] ? ` (strongest: ${warmTop[0].name}, ${warmTop[0].position} — via ${warmTop[0].owner})` : ""} — ask for a warm intro to the buyer.`
+    : `No one on the team knows anyone at ${name} yet — cold approach. Lead with the specific hiring signal.`;
 
   const confidence: BuyerConfidence = ranked.some((b) => b.confidence === "confirmed")
     ? "confirmed"
@@ -377,6 +386,12 @@ async function extractBuyers(companyName: string, evidence: string): Promise<Raw
 /* ------------------------------------------------------------------ *
  * Small helpers.
  * ------------------------------------------------------------------ */
+
+// Is this owner the person actually using the app? Today the app user is Jolene
+// (the rep). "Self" owners can reach out directly; others get brokered through.
+function isSelf(owner: string): boolean {
+  return /jolene/i.test(owner);
+}
 
 function sameName(a: string, b: string | null): boolean {
   if (!a || !b) return false;

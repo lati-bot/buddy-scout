@@ -1,15 +1,30 @@
-// Connections — Tomi's LinkedIn network, the fuel for warm-path matching.
+// Connections — the Dev Difference TEAM's LinkedIn network, the fuel for warm-path matching.
 //
-// The whole point: when a company hits the queue, answer "do I know someone
-// here, and is it a strong intro?" A founder/CTO/hiring-manager at a small
-// startup is a real warm path; a random IC at 200k-person Microsoft barely
-// moves the needle. So we store connections keyed by company and score the
-// STRENGTH of each potential intro by role seniority + relevance.
+// This is a MULTI-OWNER network. Anyone on the team (Tomi, Jolene, future reps)
+// uploads their LinkedIn export, and each connection is TAGGED with whose network
+// it came from (`owner`). When a company hits the queue we answer not just "does
+// someone know a person here?" but "WHO on our team knows them" — so Jolene knows
+// whether it's her own intro (just reach out) or someone else's (ask them to broker).
+// Built for N owners: a new rep just uploads and their connections tag to them.
+//
+// The whole point: a founder/CTO/hiring-manager at a small startup is a real warm
+// path; a random IC at 200k-person Microsoft barely moves the needle. So we store
+// connections keyed by company and score the STRENGTH of each potential intro.
 
 import { getConnectionsContainer } from "./cosmos";
 
+// Whose network a connection came from. Free-form so new team members just work;
+// normalized to a lowercase key for dedupe/matching, with a display label kept.
+export type Owner = string;
+
+export function ownerKey(raw: string): string {
+  return (raw || "").toLowerCase().replace(/[^a-z0-9]+/g, "").trim();
+}
+
 export type Connection = {
-  id: string;            // stable hash of profile URL (dedupe)
+  id: string;            // stable hash of owner + profile URL (dedupe per owner)
+  owner: string;         // display name of whose network this is ("Tomi", "Jolene")
+  ownerKey: string;      // normalized owner id for matching
   companyKey: string;    // normalized company name (partition key)
   company: string;       // original company name
   firstName: string;
@@ -60,9 +75,10 @@ function hashId(s: string): string {
   return "c" + (h >>> 0).toString(36);
 }
 
-/** Parse a LinkedIn "Connections.csv" export into Connection records.
- *  Skips the LinkedIn preamble/notes lines and blank rows. */
-export function parseConnectionsCsv(csv: string): Connection[] {
+/** Parse a LinkedIn "Connections.csv" export into Connection records, tagged to
+ *  the team member who owns this network (`owner`). Skips LinkedIn preamble/blanks. */
+export function parseConnectionsCsv(csv: string, owner: string = "Tomi"): Connection[] {
+  const oKey = ownerKey(owner);
   const lines = csv.split(/\r?\n/);
   // find the header row (starts with "First Name,")
   const headerIdx = lines.findIndex((l) => /^First Name,\s*Last Name,/.test(l));
@@ -75,7 +91,9 @@ export function parseConnectionsCsv(csv: string): Connection[] {
     if (!url || !company) continue;               // need a person + a company
     const name = `${firstName} ${lastName}`.replace(/\s+/g, " ").trim();
     out.push({
-      id: hashId(url),
+      id: hashId(oKey + "|" + url),               // dedupe PER OWNER (both can know the same person)
+      owner: owner.trim(),
+      ownerKey: oKey,
       companyKey: companyKey(company),
       company: company.trim(),
       firstName: firstName.trim(),
@@ -125,7 +143,8 @@ export async function upsertConnections(conns: Connection[]): Promise<number> {
   return n;
 }
 
-/** Who do I know at this company? Returns intros sorted strongest-first. */
+/** Who do I know at this company, across the WHOLE team? Returns intros sorted
+ *  strongest-first; each carries its `owner` so the card can say who knows them. */
 export async function connectionsAtCompany(companyName: string): Promise<Connection[]> {
   const key = companyKey(companyName);
   if (!key) return [];
@@ -137,4 +156,11 @@ export async function connectionsAtCompany(companyName: string): Promise<Connect
     })
     .fetchAll();
   return resources.sort((a, b) => b.strength - a.strength);
+}
+
+/** Distinct owners (team members) whose networks reach this company. */
+export function ownersOf(conns: Connection[]): string[] {
+  const seen = new Map<string, string>();
+  for (const c of conns) if (c.owner && !seen.has(c.ownerKey)) seen.set(c.ownerKey, c.owner);
+  return [...seen.values()];
 }

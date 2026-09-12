@@ -29,7 +29,7 @@ type Company = {
 };
 type WarmIntro = { name: string; position: string; url: string; strength: number };
 type WarmPath = { warm: boolean; count?: number; boost?: number; intros: WarmIntro[] };
-type BuyerWarm = { direct: boolean; count: number; best: WarmIntro[] };
+type BuyerWarm = { direct: boolean; directOwners?: string[]; count: number; owners?: string[]; best: (WarmIntro & { owner?: string })[] };
 type BuyerCandidate = {
   name: string | null; title: string; roleFit: "founder" | "talent" | "eng" | "other";
   why: string; city: string | null; cityBasis: "public" | "assumed-hq" | "unknown";
@@ -430,9 +430,9 @@ function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void
                 <span>📍 {b.city}{b.cityBasis === "assumed-hq" ? <span style={{ color: C.ink3 }}> (assumed from HQ)</span> : b.cityBasis === "public" ? "" : ""}</span>
               )}
               {b.warm?.direct ? (
-                <span style={{ color: C.accent, fontWeight: 600 }}>You know them directly</span>
+                <span style={{ color: C.accent, fontWeight: 600 }}>{b.warm.directOwners?.length ? `${b.warm.directOwners.join(" & ")} know${b.warm.directOwners.length === 1 ? "s" : ""} them` : "You know them directly"}</span>
               ) : b.warm && b.warm.count > 0 ? (
-                <span>{b.warm.count} mutual{b.warm.best[0] ? ` · ${b.warm.best[0].name} (${b.warm.best[0].position})` : ""}</span>
+                <span>{b.warm.count} mutual{b.warm.best[0] ? ` · ${b.warm.best[0].name} (${b.warm.best[0].position})${b.warm.best[0].owner ? ` via ${b.warm.best[0].owner}` : ""}` : ""}</span>
               ) : (
                 <span style={{ color: C.ink3 }}>no mutual — cold</span>
               )}
