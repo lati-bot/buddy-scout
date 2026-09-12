@@ -36,19 +36,31 @@ export async function resolveName(
   // API, and covers the vast majority of what Jolene will type. We only fall
   // through to web search when the guesses don't resolve. (The old DDG-scrape
   // resolver returned empty on Vercel, breaking the bare-name front door.)
+  // Primary path: GUESS the domain from the name and verify it actually loads.
+  // "Ramp" -> ramp.com, "OpenAI" -> openai.com. Instant, no search API needed.
+  // IMPORTANT: prefer FULL-NAME domains (devdifference.com) over first-word ones
+  // (dev.ai) — "dev difference" must not silently snap to "dev". We collect up to
+  // a few verified guesses (not just the first) so the picker can offer choices
+  // and the user can reject a bad match.
   const guesses = guessDomains(name);
   const verified: ResolveCandidate[] = [];
   for (const g of guesses) {
     if (await domainLoads(g)) {
       verified.push({ domain: g, name });
-      break; // first working guess wins; keep it snappy
+      if (verified.length >= 3) break;
     }
   }
-  if (verified.length) return verified;
+  // If the name is multi-word, a first-word-only match (dev.ai for "dev difference")
+  // is untrustworthy on its own — fall through to web search to find the REAL site
+  // and present both, rather than committing to the loose guess.
+  const multiWord = name.trim().split(/\s+/).length > 1;
+  const onlyFirstWordMatch =
+    verified.length === 1 && !verified[0].domain.replace(/\.[a-z]+$/, "").includes(compact(name));
+  if (verified.length && !(multiWord && onlyFirstWordMatch)) return verified;
 
   const results = await search(`${name} official company website careers`);
-  const seen = new Set<string>();
-  const out: ResolveCandidate[] = [];
+  const seen = new Set(verified.map((v) => v.domain));
+  const out: ResolveCandidate[] = [...verified];
   for (const r of results) {
     let host: string;
     try { host = new URL(r.url).hostname; } catch { continue; }
@@ -63,14 +75,21 @@ export async function resolveName(
   return out;
 }
 
+/** name -> compact stem ("dev difference" -> "devdifference") for match checks. */
+export function compact(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 /** Turn a company name into likely domains, best guess first.
- *  "Ramp" -> ramp.com; "Acme Corp" -> acmecorp.com, acme.com; also try .io/.ai
- *  which are common for startups (Jolene's world). */
+ *  Full-name stems come FIRST ("dev difference" -> devdifference.com) so a
+ *  multi-word company never silently collapses to its first word (dev.ai). */
 export function guessDomains(name: string): string[] {
   const base = name.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
   const nospace = base.replace(/\s+/g, "");
+  const hyphen = base.replace(/\s+/g, "-");
   const firstWord = base.split(/\s+/)[0];
-  const stems = Array.from(new Set([nospace, firstWord].filter(Boolean)));
+  // Order matters: full-name variants first, first-word LAST (weakest signal).
+  const stems = Array.from(new Set([nospace, hyphen, firstWord].filter(Boolean)));
   const tlds = [".com", ".io", ".ai", ".co"];
   const out: string[] = [];
   for (const s of stems) for (const tld of tlds) out.push(s + tld);

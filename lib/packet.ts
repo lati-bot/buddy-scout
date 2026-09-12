@@ -90,12 +90,33 @@ export async function generatePacket(
 
   return {
     ...parsed,
+    whoTheyAre: stripFactMarkers(parsed.whoTheyAre),
+    hiringSignal: stripFactMarkers(parsed.hiringSignal),
+    wayIn: stripFactMarkers(parsed.wayIn),
+    draft: stripFactMarkers(parsed.draft),
+    strategy: {
+      angle: stripFactMarkers(parsed.strategy?.angle ?? ""),
+      likelyObjection: stripFactMarkers(parsed.strategy?.likelyObjection ?? ""),
+      counter: stripFactMarkers(parsed.strategy?.counter ?? ""),
+    },
     confidence,
     citations,
     sources: bundleSources(bundle),
     tier,
     generatedAt: new Date().toISOString(),
   };
+}
+
+// Remove inline fact-id markers like "[f13]" or "[f14] [f15]" and tidy leftover
+// whitespace/punctuation so the reader-facing prose is clean. Markers live in the
+// "Backed by" footer (citations), never inline.
+function stripFactMarkers(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(/\s*\[f\d+\]/gi, "")
+    .replace(/\s+([.,;:!?])/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
 }
 
 // Human labels for the citation footer. Keeps Jolene's eyes on "where", not jargon.

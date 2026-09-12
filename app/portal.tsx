@@ -214,6 +214,9 @@ function LookupView(props: {
               </li>
             ))}
           </ul>
+          <div style={{ marginTop: 12, fontSize: 13, color: C.ink3 }}>
+            None of these? Type the exact website above (e.g. <code>devdifference.io</code>) and hit Scout — a full URL always wins.
+          </div>
         </div>
       )}
 
