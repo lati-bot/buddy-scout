@@ -8,7 +8,30 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // --- Web search shim (same public endpoint the scout route uses). ---
+async function braveSearch(q: string) {
+  const key = process.env.BRAVE_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=8`,
+      { headers: { "Accept": "application/json", "X-Subscription-Token": key }, signal: AbortSignal.timeout(8000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hits = data?.web?.results ?? [];
+    return hits.slice(0, 8).map((h: any) => ({
+      url: h.url as string,
+      title: (h.title ?? "").replace(/<[^>]+>/g, "").trim(),
+      description: (h.description ?? "").replace(/<[^>]+>/g, "").trim(),
+    })).filter((h: any) => h.url?.startsWith("http"));
+  } catch {
+    return null;
+  }
+}
+
 async function webSearch(q: string) {
+  const brave = await braveSearch(q);
+  if (brave && brave.length) return brave;
   try {
     const res = await fetch(`https://duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
       headers: { "User-Agent": "BuddyScout/0.1" },
