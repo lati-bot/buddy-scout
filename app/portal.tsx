@@ -171,13 +171,13 @@ function LookupView(props: {
       <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3 }}>New lookup</div>
       <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>Scout a company</h1>
       <p style={{ color: C.ink2, fontSize: 14, maxWidth: "62ch" }}>
-        Type a company name or its website. We check if they&rsquo;re hiring, find the way in, and write the pitch — every claim traced to a source.
+        Paste the company&rsquo;s website &mdash; you know it, so we don&rsquo;t have to guess. We check if they&rsquo;re hiring, find the way in, and write the pitch, every claim traced to a source. (A name works too, but a URL is always exact.)
       </p>
 
       <form onSubmit={onSubmit} style={{ display: "flex", gap: 10, margin: "22px 0 6px" }}>
         <input
           autoFocus value={input} onChange={(e) => setInput(e.target.value)}
-          placeholder="e.g. Rain  ·  or  rain.xyz"
+          placeholder="e.g. rain.xyz  (or a company name)"
           style={{
             flex: 1, padding: "11px 13px", border: `1px solid ${C.rule}`, borderRadius: 2,
             fontSize: 15, fontFamily: "inherit", background: "#fff", color: C.ink, outline: "none",
