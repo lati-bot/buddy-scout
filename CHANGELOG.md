@@ -8,6 +8,28 @@ env values, or credentials. Describe *that* a key/integration exists, never the 
 
 ---
 
+## 2026-09-12 — Scout understands the real Buddy
+
+### Changed
+- **Product positioning corrected across packet generation and contact angles.** Scout
+  now describes Buddy as interviewing every applicant against the role and employer
+  criteria, then continuously surfacing who deserves human time. Resume screening,
+  generic hiring support, cheating detection, and batch-shortlist language are prohibited.
+- **Buyer selection is contextual instead of founder → talent → engineering.** Ranking
+  now considers company size/stage, verified hiring volume, engineering concentration,
+  functional concentration, and confirmed recruiting leadership. Warmth is an entry path,
+  not permission to call an irrelevant contact the buyer; location no longer affects rank.
+- **Buyer research receives the verified role mix** and preserves evidence from each
+  persona query so one search cannot crowd the others out.
+- **No-evidence fallbacks are contextual.** Engineering leadership appears only when
+  technical hiring is materially active; concentrated sales/marketing/product/operations
+  hiring can route to the matching functional leader.
+
+### Verified
+- Added a six-scenario buyer-ranking gate covering scaled recruiting, engineering-heavy,
+  tiny founder-led, function-heavy, thin-context, and irrelevant-warm-contact cases.
+- Production build, type checking, and static generation pass.
+
 ## 2026-09-12 — Buyer-naming goes live (Brave), URL-first front door, packet polish
 
 ### Added

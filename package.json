@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:buyer": "tsx scripts/test-buyer-ranking.ts"
   },
   "dependencies": {
     "@azure/cosmos": "^4.10.0",

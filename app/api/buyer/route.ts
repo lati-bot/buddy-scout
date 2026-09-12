@@ -102,7 +102,14 @@ export async function POST(req: NextRequest) {
       location: null,
     };
     const card = await buildBuyerCard(
-      { name: company.name ?? domain, domain, location: (company as any).location ?? null },
+      {
+        name: company.name ?? domain,
+        domain,
+        location: (company as any).location ?? null,
+        size: (company as any).size ?? null,
+        stage: (company as any).stage ?? null,
+        hiringRoles: (company as any).hiring?.roles ?? [],
+      },
       webSearch,
       fetchPage
     );

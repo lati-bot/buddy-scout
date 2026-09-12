@@ -56,7 +56,8 @@ const HIRING = /\b(recruit|talent|sourcer|sourcing|people|hr|acquisition|staffin
 const MID = /\b(principal|lead|manager|senior|staff)\b/i;
 
 /** Warm-path strength: how valuable is knowing THIS person for an intro?
- *  Seniority = can open a door. Hiring/talent = literally the buyer for Buddy.
+ *  Seniority = can open a door. Hiring/talent = especially relevant to the
+ *  applicant workflow, but company context still determines the actual buyer.
  *  This is a heuristic on the connection alone; company-size weighting happens
  *  at match time (we don't know headcount here). */
 export function warmStrength(position: string): number {
@@ -64,7 +65,7 @@ export function warmStrength(position: string): number {
   let s = 30; // baseline: a known human at the company
   if (SENIOR.test(p)) s += 45;      // decision-maker / door-opener
   else if (MID.test(p)) s += 20;    // some pull
-  if (HIRING.test(p)) s += 25;      // recruiter/talent = the actual buyer persona
+  if (HIRING.test(p)) s += 25;      // recruiter/talent = a strong buyer or broker candidate
   return Math.min(100, s);
 }
 

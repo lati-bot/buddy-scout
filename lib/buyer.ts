@@ -4,13 +4,13 @@
 // pass Jolene runs on a company she cares about ("Find the buyer →"). It spends real
 // effort only when it's worth it.
 //
-// THE JOB (reasoned as Jolene, a rep working NYC + Chicago, selling Buddy — AI
-// resume-screening / interview-integrity — to software startups hiring engineers):
+// THE JOB (reasoned as Jolene, a rep working NYC + Chicago, selling Buddy — an AI
+// recruiter that interviews every applicant against the role and employer criteria):
 //   Turn a company into a SPECIFIC HUMAN she can plausibly reach this week.
 //
 // Three layers, in effectiveness order:
-//   1. BUYER(S)   — rank the right decision-maker(s): founder/CEO → Head of Talent →
-//                   Head of Eng/CTO. From REAL sources only, labeled confirmed vs likely.
+//   1. BUYER(S)   — rank the person who owns the actual hiring-volume pain in this
+//                   company's context. From REAL sources only, labeled confirmed vs likely.
 //   2. WARM PATH  — her unfair edge: does she (or the network) already know this buyer,
 //                   or someone at the company? Warm always beats cold.
 //   3. LOCATION   — where's the buyer, relative to her two bases (NYC / Chicago)?
@@ -34,7 +34,7 @@ export type BuyerConfidence = "confirmed" | "likely" | "thin";
 export interface BuyerCandidate {
   name: string | null;          // null = "role identified, person not yet named"
   title: string;                // the role as found/inferred
-  roleFit: "founder" | "talent" | "eng" | "other";
+  roleFit: "founder" | "talent" | "eng" | "functional" | "other";
   why: string;                  // one line: why THIS person, for Buddy
   city: string | null;          // person's city if public; else null
   cityBasis: "public" | "assumed-hq" | "unknown";
@@ -70,6 +70,12 @@ export interface BuyerCard {
   notes: string[];              // honesty notes ("founder city assumed from HQ", etc.)
 }
 
+export interface BuyerContext {
+  size?: string | null;
+  stage?: string | null;
+  hiringRoles?: string[];
+}
+
 /* ------------------------------------------------------------------ *
  * Location — Jolene's two home bases, matched honestly.
  * ------------------------------------------------------------------ */
@@ -92,34 +98,39 @@ export function baseFor(city: string | null | undefined): "nyc" | "chicago" | nu
 const RX_FOUNDER = /\b(founder|co-?founder|ceo|chief executive)\b/i;
 const RX_TALENT = /\b(talent|recruit|recruiting|people|head of people|chief people|hr|human resources|staffing)\b/i;
 const RX_ENG = /\b(cto|chief technology|vp eng|vp of eng|head of eng|engineering lead|head of engineering|technical co-?founder)\b/i;
+const RX_FUNCTIONAL = /\b(chief revenue|cro|vp sales|head of sales|sales leader|chief marketing|cmo|vp marketing|head of marketing|chief operating|coo|vp operations|head of operations|chief product|cpo|vp product|head of product|general manager)\b/i;
 
 export function roleFitOf(title: string): BuyerCandidate["roleFit"] {
   const t = title || "";
   if (RX_FOUNDER.test(t)) return "founder";
   if (RX_TALENT.test(t)) return "talent";
   if (RX_ENG.test(t)) return "eng";
+  if (RX_FUNCTIONAL.test(t)) return "functional";
   return "other";
 }
 
-// Approach priority: founder first (at a startup they ARE hiring; strongest net
-// segment), then talent (feels the resume-screen pain directly), then eng (suffers
-// bad-fit hires / cheated interviews). This is the order the card recommends.
-const FIT_RANK: Record<BuyerCandidate["roleFit"], number> = {
-  founder: 3,
-  talent: 2,
-  eng: 1,
-  other: 0,
-};
-
-/** Rank buyers: warm+near beats cold+remote; role fit breaks ties; confirmed > likely. */
+/** Rank buyers contextually. Warmth breaks close calls; it does not turn a weak contact into the buyer. */
 type ScoredCandidate = BuyerCandidate & { nearBaseScore?: number };
 
-export function rankBuyers(cands: ScoredCandidate[]): ScoredCandidate[] {
+export function rankBuyers(cands: ScoredCandidate[], context: BuyerContext = {}): ScoredCandidate[] {
+  const roles = context.hiringRoles ?? [];
+  const engCount = roles.filter((r) => /engineer|developer|software|data|security|technical|devops|infrastructure/i.test(r)).length;
+  const engHeavy = roles.length >= 2 && engCount / roles.length >= 0.5;
+  const hasTalentBuyer = cands.some((b) => b.roleFit === "talent" && b.name);
+  const sizeText = context.size ?? "";
+  const smallCompany = /\b(1[-–]10|11[-–]50|seed|pre-seed|tiny|small)\b/i.test(`${sizeText} ${context.stage ?? ""}`);
+  const dominantFunction = dominantHiringFunction(roles);
+  const fitScore = (b: ScoredCandidate): number => {
+    if (b.roleFit === "talent") return hasTalentBuyer && (roles.length >= 8 || !smallCompany) ? 46 : 32;
+    if (b.roleFit === "founder") return smallCompany || !hasTalentBuyer ? 40 : 26;
+    if (b.roleFit === "eng") return engHeavy ? 44 : 18;
+    if (b.roleFit === "functional") return dominantFunction && titleMatchesFunction(b.title, dominantFunction) ? 44 : 16;
+    return 0;
+  };
   const score = (b: ScoredCandidate): number => {
-    let s = FIT_RANK[b.roleFit] * 10;
-    if (b.warm?.direct) s += 60;          // we KNOW this exact person = top of the pile
-    else if (b.warm && b.warm.count > 0) s += 25; // we know someone at the company
-    if (b.nearBaseScore) s += b.nearBaseScore;
+    let s = fitScore(b);
+    if (b.warm?.direct) s += 18;
+    else if (b.warm && b.warm.count > 0) s += 5;
     if (b.confidence === "confirmed") s += 8;
     else if (b.confidence === "likely") s += 3;
     return s;
@@ -143,7 +154,7 @@ type WebSearch = (q: string) => Promise<WebHit[]>;
  * @param fetchPage injected page fetch (returns cleaned text + final url)
  */
 export async function buildBuyerCard(
-  company: Pick<Company, "name" | "domain" | "location">,
+  company: Pick<Company, "name" | "domain" | "location"> & BuyerContext,
   webSearch: WebSearch,
   fetchPage: (url: string) => Promise<{ url: string; text: string } | null>
 ): Promise<BuyerCard> {
@@ -173,9 +184,10 @@ export async function buildBuyerCard(
   // company's own site (team/about/leadership) + LinkedIn + press, then let the
   // model EXTRACT names/titles/cities FROM THE FETCHED TEXT ONLY (never invent).
   const queries = [
-    `${name} founder CEO`,
     `${name} "head of talent" OR "head of recruiting" OR "head of people"`,
-    `${name} CTO OR "head of engineering"`,
+    `${name} founder CEO`,
+    ...(isEngineeringHeavy(company.hiringRoles ?? []) ? [`${name} CTO OR "head of engineering"`] : []),
+    ...functionalBuyerQueries(name, company.hiringRoles ?? []),
     `${name} team leadership about`,
   ];
 
@@ -183,15 +195,17 @@ export async function buildBuyerCard(
   for (const q of queries) {
     try {
       const r = await webSearch(q);
-      for (const h of r) if (!hits.find((x) => x.url === h.url)) hits.push(h);
+      // Keep a small quota per persona query so one productive query cannot crowd
+      // every other possible buyer out of the evidence window.
+      for (const h of r.slice(0, 2)) if (!hits.find((x) => x.url === h.url)) hits.push(h);
     } catch { /* keep going */ }
   }
 
   // Prefer the company's own pages + LinkedIn for extraction (most trustworthy).
   const preferred = hits
     .filter((h) => h.url.includes(domain) || /linkedin\.com\/(in|company)/.test(h.url) || /about|team|leadership|people|founder/i.test(h.url))
-    .slice(0, 6);
-  const pool = (preferred.length ? preferred : hits).slice(0, 6);
+    .slice(0, 8);
+  const pool = (preferred.length ? preferred : hits).slice(0, 8);
 
   // Fetch page text for the strongest candidates so extraction is grounded.
   const pages: Array<{ url: string; text: string }> = [];
@@ -217,7 +231,7 @@ export async function buildBuyerCard(
   let extracted: RawBuyer[] = [];
   if (evidence.trim()) {
     try {
-      extracted = await extractBuyers(name, evidence);
+      extracted = await extractBuyers(name, evidence, company);
     } catch (e: any) {
       notes.push(`Buyer extraction failed (${e?.message ?? "model error"}); showing role targets only.`);
     }
@@ -264,7 +278,7 @@ export async function buildBuyerCard(
 
   // If we found nobody by name, still hand Jolene the role targets to aim for.
   if (!cands.length) {
-    for (const fit of ["founder", "talent", "eng"] as const) {
+    for (const fit of fallbackFits(company)) {
       cands.push({
         name: null,
         title: targetTitle(fit),
@@ -280,7 +294,7 @@ export async function buildBuyerCard(
     }
   }
 
-  const ranked = rankBuyers(cands).map(({ nearBaseScore, ...b }) => b);
+  const ranked = rankBuyers(cands, company).map(({ nearBaseScore, ...b }) => b);
 
   // --- 4. Location summary (relative to her two bases). -----------------
   const topNear = ranked.map((b) => baseFor(b.city)).find(Boolean) ?? baseFor(hqGuess);
@@ -294,12 +308,12 @@ export async function buildBuyerCard(
   // --- 5. Warm summary + overall confidence floor. ---------------------
   // Multi-owner: name WHO on the team holds the warm path so Jolene knows whether
   // it's her own intro (just reach out) or someone else's (ask them to broker).
-  const directBuyer = ranked.find((b) => b.warm?.direct);
+  const directBuyer = ranked.find((b) => b.warm?.direct && b.roleFit !== "other");
   const directOwners = directBuyer?.warm?.directOwners ?? [];
   const fmtOwners = (o: string[]) =>
     o.length === 1 ? o[0] : o.length === 2 ? `${o[0]} and ${o[1]}` : `${o.slice(0, -1).join(", ")} and ${o[o.length - 1]}`;
   const warmSummary = directBuyer && directOwners.length
-    ? `${fmtOwners(directOwners)} ${directOwners.length === 1 ? "knows" : "know"} ${directBuyer.name} directly — that's the intro. ${directOwners.length === 1 ? (isSelf(directOwners[0]) ? "Reach out yourself." : `Ask ${directOwners[0]} to broker it.`) : "Go through whichever of them you're closest to."}`
+    ? `${fmtOwners(directOwners)} ${directOwners.length === 1 ? "knows" : "know"} ${directBuyer.name} directly — that's the warm route to this buyer. ${directOwners.length === 1 ? (isSelf(directOwners[0]) ? "Reach out yourself." : `Ask ${directOwners[0]} to broker it.`) : "Go through whichever of them you're closest to."}`
     : conns.length
     ? `${teamOwners.length > 1 ? `${fmtOwners(teamOwners)} know` : `${fmtOwners(teamOwners)} knows`} ${conns.length} ${conns.length === 1 ? "person" : "people"} at ${name}${warmTop[0] ? ` (strongest: ${warmTop[0].name}, ${warmTop[0].position} — via ${warmTop[0].owner})` : ""} — ask for a warm intro to the buyer.`
     : `No one on the team knows anyone at ${name} yet — cold approach. Lead with the specific hiring signal.`;
@@ -336,11 +350,16 @@ interface RawBuyer {
   companyHq: string | null;
 }
 
-const EXTRACT_SYSTEM = `You extract DECISION-MAKERS from provided web evidence for a sales rep selling "Buddy" (AI resume-screening / interview-integrity) to software startups that hire engineers.
+const EXTRACT_SYSTEM = `You extract DECISION-MAKERS from provided web evidence for a sales rep selling "Buddy," an AI recruiter that interviews every applicant against the role and employer criteria, then continuously helps the hiring team see who deserves human time.
 
 You are given EVIDENCE BLOCKS, each tagged with its source URL. You may ONLY use information literally present in the evidence. NEVER invent, infer, or guess a name, title, or city that is not in the text. If the evidence does not name a person, return an empty people list — that is correct and expected, not a failure.
 
-Prioritize, in this order: (1) Founder / CEO, (2) Head of Talent / Recruiting / People, (3) CTO / Head of Engineering. These are Buddy's buyers.
+Choose contextually rather than using a fixed title order:
+- Tiny founder-led company with no recruiting leader: Founder / CEO or the functional hiring owner.
+- Company with recruiting leadership or meaningful hiring volume: Head of Talent / Recruiting / People.
+- Function-heavy hiring: that function's leader may own the pain.
+- CTO / Head of Engineering only when the supplied roles show engineering hiring is material.
+A warm employee can be the path to the buyer without being the buyer.
 
 For each person you find IN THE EVIDENCE, capture:
 - name (exact, as written)
@@ -355,13 +374,13 @@ Return ONLY JSON:
 {"companyHq": string|null, "people": [{"name": string, "title": string, "city": string|null, "sourceUrl": string, "why": string}]}
 Never include a person whose name is not explicitly in the evidence.`;
 
-async function extractBuyers(companyName: string, evidence: string): Promise<RawBuyer[]> {
+async function extractBuyers(companyName: string, evidence: string, context: BuyerContext): Promise<RawBuyer[]> {
   const raw = await complete({
     tier: "mid",
     system: EXTRACT_SYSTEM,
     json: true,
     maxTokens: 900,
-    user: `Company: ${companyName}\n\nEVIDENCE:\n${evidence}`,
+    user: `Company: ${companyName}\nCompany size/stage: ${context.size ?? "unknown"} / ${context.stage ?? "unknown"}\nVerified open roles: ${(context.hiringRoles ?? []).join(", ") || "unknown"}\n\nEVIDENCE:\n${evidence}`,
   });
   let parsed: any;
   try {
@@ -404,18 +423,74 @@ function sameName(a: string, b: string | null): boolean {
 function whyForFit(fit: BuyerCandidate["roleFit"]): string {
   switch (fit) {
     case "founder":
-      return "At a startup this size the founder owns hiring — and feels the first-round-call drain Buddy removes.";
+      return "At a small founder-led company, this person often owns the tradeoff between interviewing everyone and protecting the team's time.";
     case "talent":
-      return "Owns screening directly; Buddy is the resume-screen layer that saves them the most time.";
+      return "Owns the applicant workflow; Buddy helps the team speak with everyone while reserving human interviews for the right candidates.";
     case "eng":
-      return "Suffers bad-fit hires and cheated interviews; Buddy protects interview integrity.";
+      return "Relevant when engineering hiring is the active bottleneck and the team needs better role-fit signal before human interviews.";
+    case "functional":
+      return "Relevant when this leader owns the function absorbing the current hiring load.";
     default:
       return "Involved in hiring decisions.";
   }
 }
 
 function targetTitle(fit: BuyerCandidate["roleFit"]): string {
-  return fit === "founder" ? "Founder / CEO" : fit === "talent" ? "Head of Talent / Recruiting" : "CTO / Head of Engineering";
+  if (fit === "founder") return "Founder / CEO";
+  if (fit === "talent") return "Head of Talent / Recruiting";
+  if (fit === "eng") return "CTO / Head of Engineering";
+  if (fit === "functional") return "Functional hiring leader";
+  return "Hiring workflow owner";
+}
+
+function isEngineeringHeavy(roles: string[]): boolean {
+  if (roles.length < 2) return false;
+  const eng = roles.filter((r) => /engineer|developer|software|data|security|technical|devops|infrastructure/i.test(r)).length;
+  return eng / roles.length >= 0.5;
+}
+
+function functionalBuyerQueries(name: string, roles: string[]): string[] {
+  const dominant = dominantHiringFunction(roles);
+  if (dominant === "sales") return [`${name} "head of sales" OR CRO OR "VP Sales"`];
+  if (dominant === "marketing") return [`${name} CMO OR "head of marketing" OR "VP Marketing"`];
+  if (dominant === "product") return [`${name} CPO OR "head of product" OR "VP Product"`];
+  if (dominant === "operations") return [`${name} COO OR "head of operations" OR "VP Customer"`];
+  return [];
+}
+
+type HiringFunction = "sales" | "marketing" | "product" | "operations";
+
+function dominantHiringFunction(roles: string[]): HiringFunction | null {
+  if (roles.length < 2) return null;
+  const patterns: Record<HiringFunction, RegExp> = {
+    sales: /sales|account executive|business development|revenue|partnership/i,
+    marketing: /marketing|growth|demand generation|content/i,
+    product: /product|product manager|design|research/i,
+    operations: /operations|customer success|support|implementation|delivery/i,
+  };
+  const counts = (Object.keys(patterns) as HiringFunction[])
+    .map((key) => ({ key, count: roles.filter((r) => patterns[key].test(r)).length }))
+    .sort((a, b) => b.count - a.count);
+  const top = counts[0];
+  return top && top.count >= 2 && top.count / roles.length >= 0.5 ? top.key : null;
+}
+
+function titleMatchesFunction(title: string, fn: HiringFunction): boolean {
+  const patterns: Record<HiringFunction, RegExp> = {
+    sales: /sales|revenue|business development|partnership/i,
+    marketing: /marketing|growth|demand/i,
+    product: /product|design|research/i,
+    operations: /operations|customer|support|implementation|delivery/i,
+  };
+  return patterns[fn].test(title);
+}
+
+function fallbackFits(context: BuyerContext): Array<BuyerCandidate["roleFit"]> {
+  const roles = context.hiringRoles ?? [];
+  const out: Array<BuyerCandidate["roleFit"]> = ["talent", "founder"];
+  if (isEngineeringHeavy(roles)) out.push("eng");
+  else if (functionalBuyerQueries("company", roles).length) out.push("functional");
+  return out;
 }
 
 function locationNote(hq: string | null, near: "nyc" | "chicago" | null, warmCount: number): string {

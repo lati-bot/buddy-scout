@@ -33,7 +33,7 @@ type WarmIntro = { name: string; position: string; url: string; strength: number
 type WarmPath = { warm: boolean; count?: number; boost?: number; intros: WarmIntro[] };
 type BuyerWarm = { direct: boolean; directOwners?: string[]; count: number; owners?: string[]; best: (WarmIntro & { owner?: string })[] };
 type BuyerCandidate = {
-  name: string | null; title: string; roleFit: "founder" | "talent" | "eng" | "other";
+  name: string | null; title: string; roleFit: "founder" | "talent" | "eng" | "functional" | "other";
   why: string; city: string | null; cityBasis: "public" | "assumed-hq" | "unknown";
   confidence: "confirmed" | "likely" | "thin"; sourceUrl: string | null; warm: BuyerWarm | null;
 };
@@ -435,7 +435,7 @@ const liB: React.CSSProperties = { fontWeight: 600, minWidth: 110, color: C.ink2
 
 /* ---------- Buyer Card (deep pass) ---------- */
 function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void }) {
-  const fitLabel: Record<string, string> = { founder: "Founder / CEO", talent: "Talent / People", eng: "Engineering", other: "Other" };
+  const fitLabel: Record<string, string> = { founder: "Founder / CEO", talent: "Talent / People", eng: "Engineering", functional: "Functional leader", other: "Other" };
   const confChip = (c: string) => {
     const map: Record<string, { bg: string; fg: string; t: string }> = {
       confirmed: { bg: C.wash, fg: C.accent, t: "confirmed" },

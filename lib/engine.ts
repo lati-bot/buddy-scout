@@ -34,16 +34,15 @@ const ANGLES = {
   founder: {
     label: "Founder time-saver",
     body:
-      "No talent team yet, so the founder is screening applicants personally. " +
-      "Buddy pre-filters and ranks them, then hands over a shortlist. " +
-      "You're selling time back.",
+      "At a founder-led company, every applicant deserves a real first look but the founder cannot take every first conversation. " +
+      "Buddy interviews applicants against the role and the founder's criteria, then surfaces who deserves human time. " +
+      "You're selling time back without asking them to overlook strong people.",
   },
   team: {
     label: "Recruiter support",
     body:
-      "They have a talent team, so Buddy augments rather than replaces: it feeds " +
-      "pre-vetted, ranked candidates so recruiters skip the top-of-funnel " +
-      "sourcing grind.",
+      "They have a talent team, so Buddy augments rather than replaces it: every applicant gets interviewed against the role and employer criteria. " +
+      "The team gets continuously updated role-fit signal and can spend human interview time where it matters most.",
   },
 };
 
@@ -282,8 +281,8 @@ export async function scout(input: {
     return {
       ok: false,
       error:
-        "Need a contact name to verify. Tip: the founder/CEO for small " +
-        "startups, or Head of Talent for bigger ones.",
+        "Need a contact name to verify. Pick the person who owns the current hiring workflow: " +
+        "often a founder at a tiny company, recruiting leadership at scale, or the functional leader for concentrated hiring.",
     };
   }
 
