@@ -75,6 +75,7 @@ export async function POST(req: NextRequest) {
       const result = await scout(domain, {
         name: body?.name || undefined,
         tier: body?.hot ? "mid" : "cheap",
+        force: Boolean(body?.force || body?.regenerate),
       });
       return NextResponse.json({
         ok: true,
