@@ -27,8 +27,21 @@ type Company = {
   hiring: { isHiring: boolean; roles: string[]; source: string | null; seenAt: string | null };
   sources: string[]; lastCheckedAt: string | null;
 };
+type WarmIntro = { name: string; position: string; url: string; strength: number };
+type WarmPath = { warm: boolean; count?: number; boost?: number; intros: WarmIntro[] };
+type BuyerWarm = { direct: boolean; count: number; best: WarmIntro[] };
+type BuyerCandidate = {
+  name: string | null; title: string; roleFit: "founder" | "talent" | "eng" | "other";
+  why: string; city: string | null; cityBasis: "public" | "assumed-hq" | "unknown";
+  confidence: "confirmed" | "likely" | "thin"; sourceUrl: string | null; warm: BuyerWarm | null;
+};
+type BuyerCard = {
+  companyName: string; domain: string; buyers: BuyerCandidate[];
+  location: { companyHq: string | null; companyHqSource: string | null; nearBase: "nyc" | "chicago" | null; note: string };
+  warmSummary: string; confidence: "confirmed" | "likely" | "thin"; sources: string[]; generatedAt: string; notes: string[];
+};
 type ScoutResp =
-  | { ok: true; mode: "packet"; cached: boolean; atsFound: boolean; company: Company; packet: Packet | null }
+  | { ok: true; mode: "packet"; cached: boolean; atsFound: boolean; company: Company; packet: Packet | null; warmPath?: WarmPath }
   | { ok: true; mode: "resolve"; candidates: Candidate[] }
   | { ok: false; mode?: string; error: string };
 
@@ -55,7 +68,25 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
   const [company, setCompany] = useState<Company | null>(null);
   const [packet, setPacket] = useState<Packet | null>(null);
   const [cached, setCached] = useState(false);
+  const [warmPath, setWarmPath] = useState<WarmPath | null>(null);
   const [copied, setCopied] = useState(false);
+  const [buyerCard, setBuyerCard] = useState<BuyerCard | null>(null);
+  const [buyerBusy, setBuyerBusy] = useState(false);
+  const [buyerErr, setBuyerErr] = useState<string | null>(null);
+
+  async function findBuyer(c: Company) {
+    setBuyerBusy(true); setBuyerErr(null); setBuyerCard(null);
+    try {
+      const r = await fetch("/api/buyer", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: c.domain, name: c.name }),
+      });
+      const j = await r.json();
+      if (!j.ok) setBuyerErr(j.error || "Buyer research failed.");
+      else setBuyerCard(j.card);
+    } catch (e) { setBuyerErr(String(e)); }
+    finally { setBuyerBusy(false); }
+  }
 
   async function post(body: Record<string, unknown>): Promise<ScoutResp> {
     const r = await fetch("/api/scout", {
@@ -72,6 +103,8 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
       if (!res.ok) { setError(res.error); return; }
       if (res.mode === "resolve") { setCandidates(res.candidates); return; }
       setCompany(res.company); setPacket(res.packet); setCached(res.cached);
+      setWarmPath(res.warmPath ?? null);
+      setBuyerCard(null); setBuyerErr(null);
       setView("packet");
     } catch (e) {
       setError(String(e));
@@ -112,9 +145,11 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
         )}
         {view === "packet" && company && (
           <PacketView
-            company={company} packet={packet} cached={cached}
+            company={company} packet={packet} cached={cached} warmPath={warmPath}
             copied={copied} onCopy={() => { if (packet) { navigator.clipboard.writeText(packet.draft); setCopied(true); setTimeout(() => setCopied(false), 1600); } }}
             onBack={() => setView("lookup")}
+            buyerCard={buyerCard} buyerBusy={buyerBusy} buyerErr={buyerErr}
+            onFindBuyer={() => company && findBuyer(company)}
           />
         )}
         {view === "queue" && <QueueView onOpen={(d) => run({ input: d })} busy={busy} />}
@@ -199,9 +234,11 @@ function LookupView(props: {
 /* ---------- Packet document ---------- */
 function PacketView(props: {
   company: Company; packet: Packet | null; cached: boolean;
+  warmPath: WarmPath | null;
   copied: boolean; onCopy: () => void; onBack: () => void;
+  buyerCard: BuyerCard | null; buyerBusy: boolean; buyerErr: string | null; onFindBuyer: () => void;
 }) {
-  const { company, packet, cached, copied, onCopy, onBack } = props;
+  const { company, packet, cached, warmPath, copied, onCopy, onBack, buyerCard, buyerBusy, buyerErr, onFindBuyer } = props;
   const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
   const conf = packet?.confidence ?? (company.hiring.isHiring ? "medium" : "thin");
   const hiring = company.hiring.isHiring;
@@ -269,9 +306,25 @@ function PacketView(props: {
         <>
           <Section n="03" title="The way in">
             <p style={{ maxWidth: "62ch", margin: "0 0 10px" }}>{packet.wayIn}</p>
-            <div style={{ borderLeft: `2px solid ${C.rule}`, padding: "2px 0 2px 14px", margin: "12px 0", color: C.ink2 }}>
-              <b>Warm path.</b> Pending your LinkedIn connections — cold for now. Check for a mutual before sending.
-            </div>
+            {warmPath?.warm && warmPath.intros.length ? (
+              <div style={{ borderLeft: `2px solid ${C.accent}`, padding: "6px 0 6px 14px", margin: "12px 0", color: C.ink }}>
+                <b>Warm path — you know {warmPath.count} {warmPath.count === 1 ? "person" : "people"} here.</b>
+                <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+                  {warmPath.intros.map((i) => (
+                    <li key={i.url} style={{ margin: "0 0 6px", fontSize: 13.5, lineHeight: 1.5 }}>
+                      <a href={i.url} target="_blank" rel="noreferrer" style={{ color: C.accent, fontWeight: 600, textDecoration: "none" }}>{i.name}</a>
+                      <span style={{ color: C.ink2 }}> — {i.position}</span>
+                      {i.strength >= 70 && <span style={{ color: C.ink3, fontSize: 11.5 }}> · strong intro</span>}
+                    </li>
+                  ))}
+                </ul>
+                <p style={{ color: C.ink3, fontSize: 12, margin: "6px 0 0" }}>Reach out through them for a warm intro instead of going cold.</p>
+              </div>
+            ) : (
+              <div style={{ borderLeft: `2px solid ${C.rule}`, padding: "2px 0 2px 14px", margin: "12px 0", color: C.ink2 }}>
+                <b>Warm path.</b> No mutual connection found in your network — cold outreach for this one.
+              </div>
+            )}
           </Section>
 
           <Section n="04" title="The strategy">
@@ -297,6 +350,25 @@ function PacketView(props: {
         </>
       )}
 
+      {packet && (
+        <Section n="06" title="Who to approach">
+          {!buyerCard && !buyerBusy && (
+            <div style={{ margin: "0 0 4px" }}>
+              <p style={{ color: C.ink2, maxWidth: "62ch", margin: "0 0 12px" }}>
+                Run a deeper research pass to name the actual decision-maker, find their city (relative to NYC / Chicago), and your warmest path in. Takes a few seconds.
+              </p>
+              <button onClick={onFindBuyer} style={{
+                font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
+                border: `1px solid ${C.accent}`, background: "#fff", color: C.accent, fontWeight: 600,
+              }}>Find the buyer &rarr;</button>
+            </div>
+          )}
+          {buyerBusy && <p style={{ color: C.ink2 }}>Researching decision-makers &amp; warm paths…</p>}
+          {buyerErr && <p style={{ color: "#b23" }}>Couldn&rsquo;t complete buyer research: {buyerErr}</p>}
+          {buyerCard && <BuyerCardView card={buyerCard} onRerun={onFindBuyer} />}
+        </Section>
+      )}
+
       <footer style={{ borderTop: `1px solid ${C.rule}`, marginTop: 44, paddingTop: 14, display: "flex", justifyContent: "space-between", color: C.ink3, fontSize: 12.5, ...num }}>
         <span>{packet ? <>Packet generated {new Date(packet.generatedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</> : "No packet"}</span>
         <span>{(packet?.sources.length ?? company.sources.length)} sources</span>
@@ -306,6 +378,86 @@ function PacketView(props: {
 }
 const liS: React.CSSProperties = { padding: "7px 0", borderBottom: `1px solid ${C.rule}`, display: "flex", gap: 14, fontSize: 14 };
 const liB: React.CSSProperties = { fontWeight: 600, minWidth: 110, color: C.ink2 };
+
+/* ---------- Buyer Card (deep pass) ---------- */
+function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void }) {
+  const fitLabel: Record<string, string> = { founder: "Founder / CEO", talent: "Talent / People", eng: "Engineering", other: "Other" };
+  const confChip = (c: string) => {
+    const map: Record<string, { bg: string; fg: string; t: string }> = {
+      confirmed: { bg: C.wash, fg: C.accent, t: "confirmed" },
+      likely: { bg: "none", fg: C.ink2, t: "likely" },
+      thin: { bg: "none", fg: C.ink3, t: "role target" },
+    };
+    const s = map[c] ?? map.thin;
+    return (
+      <span style={{ fontSize: 11, letterSpacing: ".05em", textTransform: "uppercase", padding: "2px 6px",
+        borderRadius: 2, border: `1px solid ${s.fg === C.accent ? C.accent : C.rule}`, color: s.fg, background: s.bg, fontWeight: 600 }}>{s.t}</span>
+    );
+  };
+
+  return (
+    <div>
+      {/* location line, relative to her two bases */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 14px", fontSize: 13.5 }}>
+        <span style={{
+          fontSize: 11, letterSpacing: ".05em", textTransform: "uppercase", padding: "2px 7px", borderRadius: 2, fontWeight: 600,
+          border: `1px solid ${card.location.nearBase ? C.accent : C.rule}`,
+          color: card.location.nearBase ? C.accent : C.ink3, background: card.location.nearBase ? C.wash : "none",
+        }}>{card.location.nearBase ? `near you · ${card.location.nearBase.toUpperCase()}` : "remote"}</span>
+        <span style={{ color: C.ink2 }}>{card.location.note}</span>
+      </div>
+
+      {/* warm-path top line */}
+      <p style={{ maxWidth: "62ch", margin: "0 0 16px", color: C.ink }}>{card.warmSummary}</p>
+
+      {/* ranked buyers */}
+      <ol style={{ listStyle: "none", padding: 0, margin: "0 0 12px", counterReset: "b" }}>
+        {card.buyers.map((b, i) => (
+          <li key={i} style={{ border: `1px solid ${C.rule}`, borderLeft: `2px solid ${i === 0 ? C.accent : C.rule}`,
+            padding: "12px 14px", margin: "0 0 10px", background: i === 0 ? C.wash : "#fff" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+              <b style={{ fontSize: 15 }}>
+                {b.name ?? <span style={{ color: C.ink2, fontStyle: "italic" }}>{b.title}</span>}
+              </b>
+              {b.name && <span style={{ color: C.ink2, fontSize: 13.5 }}>{b.title}</span>}
+              {confChip(b.confidence)}
+              {i === 0 && <span style={{ fontSize: 11, color: C.accent, fontWeight: 600, letterSpacing: ".04em", textTransform: "uppercase" }}>approach first</span>}
+            </div>
+            <div style={{ fontSize: 11.5, color: C.ink3, letterSpacing: ".04em", textTransform: "uppercase", margin: "4px 0 6px" }}>{fitLabel[b.roleFit]}</div>
+            <p style={{ margin: "0 0 6px", fontSize: 13.5, color: C.ink, maxWidth: "60ch" }}>{b.why}</p>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12.5, color: C.ink2 }}>
+              {b.city && (
+                <span>📍 {b.city}{b.cityBasis === "assumed-hq" ? <span style={{ color: C.ink3 }}> (assumed from HQ)</span> : b.cityBasis === "public" ? "" : ""}</span>
+              )}
+              {b.warm?.direct ? (
+                <span style={{ color: C.accent, fontWeight: 600 }}>You know them directly</span>
+              ) : b.warm && b.warm.count > 0 ? (
+                <span>{b.warm.count} mutual{b.warm.best[0] ? ` · ${b.warm.best[0].name} (${b.warm.best[0].position})` : ""}</span>
+              ) : (
+                <span style={{ color: C.ink3 }}>no mutual — cold</span>
+              )}
+              {b.sourceUrl && (
+                <a href={b.sourceUrl} target="_blank" rel="noreferrer" style={{ color: C.ink3, textDecoration: "underline" }}>source</a>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      {card.notes.length > 0 && (
+        <ul style={{ margin: "6px 0 12px", padding: "0 0 0 16px", color: C.ink3, fontSize: 12 }}>
+          {card.notes.map((n, i) => <li key={i} style={{ margin: "0 0 3px" }}>{n}</li>)}
+        </ul>
+      )}
+
+      <div style={{ display: "flex", gap: 14, alignItems: "center", fontSize: 12.5, color: C.ink3 }}>
+        <span onClick={onRerun} style={{ cursor: "pointer", textDecoration: "underline" }}>Re-run</span>
+        <span>{card.sources.length} source{card.sources.length === 1 ? "" : "s"}</span>
+        <span style={{ textTransform: "capitalize" }}>· {card.confidence}</span>
+      </div>
+    </div>
+  );
+}
 
 /* ---------- Queue ---------- */
 function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolean }) {
