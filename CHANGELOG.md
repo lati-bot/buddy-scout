@@ -49,3 +49,28 @@ env values, or credentials. Describe *that* a key/integration exists, never the 
   question: should we still name buyers + explain "no public job board" instead of bowing out?
 - Warm-path intros currently reflect the owner's network only; per-owner network CSV not
   yet loaded.
+
+## 2026-09-12 (late) — Vision v1: Verdict line + Hook-first draft
+
+### Added
+- **VISION.md** — north star. Buddy Scout as a "get the meeting" machine, not a
+  research card. Five moves: verdict-first, one-buyer commit, hook-not-pitch,
+  sequence, feedback loop.
+- **Verdict line** — every packet now opens with a decisive call (Chase / Watch / Skip)
+  plus one sentence naming the sharpest signal. Rendered as a colored banner at the top
+  of the card, above "Who they are." Makes the decision for the rep, shows work below.
+- **Hook-first draft** — the first message is now a short curiosity hook (1-2 sentences,
+  their specific pain, NO product pitch) whose only job is to earn a reply. The old
+  full-pitch paragraph is kept as the "fuller follow-up." Two copy buttons: "Copy hook"
+  (primary) and "Copy follow-up".
+
+### Verified live (Harvey, fresh)
+- Verdict: "Chase this. Harvey has 325 open roles, including 40 sales and GTM roles..."
+- Hook: "You've got 325 open roles... How is the team keeping screening consistent across
+  that hiring push?" — curiosity, no product mention. Exactly the intended shape.
+
+### Still ahead (vision, not yet built)
+- Commit to ONE buyer + one reason (still lists 2-3).
+- 3-step sequence (hook -> value -> breakup). Only hook + follow-up so far.
+- Feedback loop (replied/meeting/dead -> learns which hooks work).
+- "Who they are" still thin (recency search pending).
