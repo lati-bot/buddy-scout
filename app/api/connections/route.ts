@@ -5,16 +5,39 @@ import {
   upsertConnections,
   connectionsAtCompany,
 } from "@/lib/connections";
+import { getConnectionsContainer } from "@/lib/cosmos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // GET /api/connections?company=Acme -> who do I know there (warm-path lookup)
+// GET /api/connections?backfillOwner=Tomi -> one-off: tag legacy untagged rows.
 export async function GET(req: NextRequest) {
   if (!isAuthed(req)) {
     return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
   }
-  const company = new URL(req.url).searchParams.get("company");
+  const url = new URL(req.url);
+  const backfill = url.searchParams.get("backfillOwner");
+  if (backfill) {
+    try {
+      const container = await getConnectionsContainer();
+      const { resources } = await container.items
+        .query({ query: "SELECT * FROM c WHERE NOT IS_DEFINED(c.owner) OR c.owner = null OR c.owner = ''" })
+        .fetchAll();
+      let n = 0;
+      const oKey = backfill.toLowerCase().replace(/[^a-z0-9]+/g, "");
+      for (const c of resources as any[]) {
+        c.owner = backfill;
+        c.ownerKey = oKey;
+        await container.items.upsert(c);
+        n++;
+      }
+      return NextResponse.json({ ok: true, backfilled: n, owner: backfill });
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    }
+  }
+  const company = url.searchParams.get("company");
   if (!company) {
     return NextResponse.json({ ok: false, error: "Pass ?company=" }, { status: 400 });
   }

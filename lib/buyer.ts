@@ -154,6 +154,8 @@ export async function buildBuyerCard(
 
   // --- 1. WARM PATH (free, instant, our edge — do it first). --------------
   const conns = await connectionsAtCompany(name);
+  // Backfill-safe: connections uploaded before the multi-owner field default to "Tomi".
+  for (const c of conns) if (!c.owner) { c.owner = "Tomi"; c.ownerKey = "tomi"; }
   const teamOwners = ownersOf(conns);
   const warmTop = conns.slice(0, 5).map((c) => ({
     name: c.name,
