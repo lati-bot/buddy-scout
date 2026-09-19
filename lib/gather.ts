@@ -12,7 +12,7 @@ import { FactsBundle, newBundle, addFact, Source } from "./facts";
 const SALES_ROLE_RE =
   /\b(account executive|ae\b|sdr|bdr|sales development|business development|revenue|revops|go-to-market|gtm|account manager|partnerships|sales engineer|head of sales|cro|chief revenue)\b/i;
 
-/** Count how many roles were posted within N days of the newest posting (heat). */
+/** Measure posting recency without mistaking an old cluster for current velocity. */
 function recencyHeat(roles: Role[]): { recent: number; total: number; newestDays: number | null } {
   const dated = roles
     .map((r) => (r.postedAt ? Date.parse(r.postedAt) : NaN))
@@ -91,13 +91,18 @@ export async function gather(opts: {
       addFact(b, "role", `Open role: ${bits.join(" ")}`, r.url ? { ...src, ref: r.url } : src, "high");
     }
 
-    // Derived heat signal — sourced to the same board, honestly labeled.
+    // Derived heat signal — sourced to the same board, honestly labeled. A tight
+    // cluster is only a current velocity signal when its newest role is recent.
+    const postingRecency = heat.newestDays === null
+      ? "; posting dates unavailable"
+      : heat.newestDays <= 30
+      ? `; newest posted ${heat.newestDays}d ago${heat.recent > 1 ? `; ${heat.recent} posted within ~2 weeks of each other (current hiring velocity)` : ""}`
+      : `; newest posting date is ${heat.newestDays}d old (roles remain listed, but do not describe this as a recent hiring push)`;
     addFact(
       b,
       "signal",
       `${realRoles.length} open roles via ${fetch.ats}` +
-        (heat.newestDays !== null ? `; newest posted ${heat.newestDays}d ago` : "") +
-        (heat.recent > 1 ? `; ${heat.recent} posted within ~2 weeks of each other (moving fast)` : "") +
+        postingRecency +
         (salesRoles.length ? `; ${salesRoles.length} sales/GTM-relevant` : "; no sales/GTM roles"),
       src,
       "high"

@@ -78,6 +78,12 @@ export async function scout(
   // Structured API roles are authoritative; a classifier must not invent titles or veto them.
   const isHiring = atsFound;
   const roleTitles = fetch.roles.map(r => r.title).filter(t => t.trim().length > 2);
+  const postingTimes = fetch.roles
+    .map(role => Date.parse(role.postedAt ?? ""))
+    .filter(time => Number.isFinite(time) && time <= Date.now());
+  const newestPostingDays = postingTimes.length
+    ? Math.floor((Date.now() - Math.max(...postingTimes)) / 86_400_000)
+    : null;
 
   // 4. Write the packet (from facts only). Skip if truly nothing to say.
   let packet: WrittenPacket | null = null;
@@ -93,6 +99,11 @@ export async function scout(
     packet.verdict = {
       call: "skip",
       line: "Skip for now. Every listed opening is VP, head, director, or C-suite level; Buddy is a stronger fit for entry-through-senior and founding-role hiring.",
+    };
+  } else if (packet && newestPostingDays !== null && newestPostingDays > 30) {
+    packet.verdict = {
+      call: "watch",
+      line: `Watch this. ${roleTitles.length} ${roleTitles.length === 1 ? "role remains" : "roles remain"} listed, but the newest posting date is ${newestPostingDays} days old, so this is not a verified current hiring push.`,
     };
   }
 

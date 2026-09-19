@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scout } from "@/lib/scout";
 import { asDomain, resolveName } from "@/lib/resolve";
-import { listByStatus, listQueue, listToday, listWorkflowQueue, withHeat } from "@/lib/repo";
+import { getCompany, listByStatus, listQueue, listToday, listWorkflowQueue, withHeat } from "@/lib/repo";
 import { isAuthed } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -12,7 +12,23 @@ export async function GET(req: NextRequest) {
   if (!isAuthed(req)) {
     return NextResponse.json({ ok: false, error: "Not signed in." }, { status: 401 });
   }
-  const q = new URL(req.url).searchParams.get("queue");
+  const params = new URL(req.url).searchParams;
+  const domain = params.get("domain");
+  if (domain) {
+    try {
+      const company = await getCompany(domain);
+      if (!company) return NextResponse.json({ ok: false, error: "Company not found." }, { status: 404 });
+      return NextResponse.json({
+        ok: true,
+        mode: "saved",
+        company,
+        packet: company.lastCheck?.status === "confirmed-hiring" ? company.packet.fast : null,
+      });
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    }
+  }
+  const q = params.get("queue");
   if (q) {
     try {
       // "all" spans every open status, ripeness-ordered; "hiring" narrows to

@@ -30,7 +30,7 @@ type Company = {
   hiring: { isHiring: boolean; roles: string[]; source: string | null; seenAt: string | null };
   sources: string[]; lastCheckedAt: string | null;
   discovery?: { decision: "qualified" | "needs_review" | "excluded"; reasons: string[] } | null;
-  packet?: { fast: { verdict?: { call?: "chase" | "watch" | "skip"; reason?: string } } | null };
+  packet: { fast: Packet | null; deep?: Record<string, unknown> | null; generatedAt?: string | null };
   lastCheck?: { status: "confirmed-hiring" | "confirmed-empty" | "unavailable"; checkedAt: string; error: string | null } | null;
   buyer?: { card: BuyerCard; generatedAt: string } | null;
   outreach?: { state: "unreviewed" | "sent" | "skipped" | "replied" | "meeting"; draft: RecipientDraft | null };
@@ -99,6 +99,10 @@ export default function Portal() {
   const [buyerBusy, setBuyerBusy] = useState(false);
   const [buyerErr, setBuyerErr] = useState<string | null>(null);
   const [recipientDraft, setRecipientDraft] = useState<RecipientDraft | null>(null);
+  const [returnTo, setReturnTo] = useState<"lookup" | "queue">("queue");
+  const [queueTab, setQueueTab] = useState<"today" | "research" | "activity">("today");
+  const [queueSearch, setQueueSearch] = useState("");
+  const [openingDomain, setOpeningDomain] = useState<string | null>(null);
 
   const requestId = useRef(0);
   const activeDomain = useRef<string | null>(null);
@@ -106,7 +110,7 @@ export default function Portal() {
   const [actionBusy, setActionBusy] = useState(false);
   function navigate(v: "lookup" | "queue") {
     requestId.current++; buyerRequestId.current++; activeDomain.current = null;
-    setBusy(false); setBuyerBusy(false); setActionBusy(false); setError(null); setView(v);
+    setBusy(false); setOpeningDomain(null); setBuyerBusy(false); setActionBusy(false); setError(null); setView(v);
   }
 
   async function findBuyer(c: Company) {
@@ -155,6 +159,7 @@ export default function Portal() {
       setBuyerCard((res.company.buyer?.card as BuyerCard | undefined) ?? null);
       setRecipientDraft(res.company.outreach?.draft ?? null);
       setBuyerErr(null);
+      setReturnTo("lookup");
       setView("packet");
       if (res.packet && !res.company.buyer?.card) void findBuyer(res.company);
     } catch (e) {
@@ -166,6 +171,27 @@ export default function Portal() {
 
   const onLookup = (e: React.FormEvent) => { e.preventDefault(); if (input.trim()) run({ input: input.trim() }); };
   const pick = (c: Candidate) => run({ domain: c.domain, name: c.name });
+
+  async function openSaved(domain: string) {
+    if (openingDomain) return;
+    const token = ++requestId.current;
+    buyerRequestId.current++; setOpeningDomain(domain); setError(null);
+    try {
+      const r = await fetch(`/api/scout?domain=${encodeURIComponent(domain)}`);
+      const j = await r.json();
+      if (token !== requestId.current) return;
+      if (!j.ok) { setError(j.error || "Could not open company."); return; }
+      activeDomain.current = j.company.domain;
+      setCompany(j.company); setPacket(j.packet); setCached(true);
+      setBuyerCard((j.company.buyer?.card as BuyerCard | undefined) ?? null);
+      setRecipientDraft(j.company.outreach?.draft ?? null);
+      setWarmPath(null); setBuyerErr(null); setReturnTo("queue"); setView("packet");
+    } catch (e) {
+      if (token === requestId.current) setError(String(e));
+    } finally {
+      if (token === requestId.current) setOpeningDomain(null);
+    }
+  }
 
   return (
     <div style={{ minHeight: "100vh" }}>
@@ -198,7 +224,10 @@ export default function Portal() {
             company={company} packet={packet} cached={cached} warmPath={warmPath}
             copied={copied} onCopy={() => { if (packet) { navigator.clipboard.writeText(packet.draft); setCopied(true); setTimeout(() => setCopied(false), 1600); } }}
             onCopyText={(t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 1600); }}
-            onBack={() => navigate("lookup")}
+            backLabel={returnTo === "queue" ? (queueTab === "research" ? "Needs research / Watch" : queueTab === "activity" ? "Activity" : "Today") : "New lookup"}
+            onBack={() => navigate(returnTo)}
+            onRefresh={() => company && run({ domain: company.domain, name: company.name, force: true })}
+            refreshBusy={busy}
             buyerCard={buyerCard} buyerBusy={buyerBusy} buyerErr={buyerErr}
             recipientDraft={recipientDraft} actionBusy={actionBusy} actionError={error}
             onFindBuyer={() => company && findBuyer(company)}
@@ -221,7 +250,8 @@ export default function Portal() {
             }}
           />
         )}
-        {view === "queue" && <QueueView onOpen={(d) => run({ input: d })} busy={busy} />}
+        {view === "queue" && <QueueView onOpen={openSaved} openingDomain={openingDomain} error={error}
+          tab={queueTab} setTab={setQueueTab} search={queueSearch} setSearch={setQueueSearch} />}
       </main>
     </div>
   );
@@ -297,12 +327,13 @@ function LookupView(props: {
 function PacketView(props: {
   company: Company; packet: Packet | null; cached: boolean;
   warmPath: WarmPath | null;
-  copied: boolean; onCopy: () => void; onCopyText: (t: string) => void; onBack: () => void;  buyerCard: BuyerCard | null; buyerBusy: boolean; buyerErr: string | null; onFindBuyer: () => void;
+  copied: boolean; onCopy: () => void; onCopyText: (t: string) => void; onBack: () => void; backLabel: string;
+  onRefresh: () => void; refreshBusy: boolean; buyerCard: BuyerCard | null; buyerBusy: boolean; buyerErr: string | null; onFindBuyer: () => void;
   recipientDraft: RecipientDraft | null;
   actionBusy: boolean; actionError: string | null;
   onAction: (action: "sent" | "skipped" | "replied" | "meeting" | "restored") => Promise<void>;
 }) {
-  const { company, packet, cached, warmPath, copied, onCopy, onCopyText, onBack, buyerCard, buyerBusy, buyerErr, onFindBuyer, recipientDraft, onAction, actionBusy, actionError } = props;  const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
+  const { company, packet, cached, warmPath, copied, onCopy, onCopyText, onBack, backLabel, onRefresh, refreshBusy, buyerCard, buyerBusy, buyerErr, onFindBuyer, recipientDraft, onAction, actionBusy, actionError } = props;  const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
   const signalAge = Date.now() - Date.parse(company.hiring.seenAt ?? "");
   const hiring = company.hiring.isHiring && company.lastCheck?.status === "confirmed-hiring" && signalAge >= 0 && signalAge <= 3 * 86400_000;
   const roleFit = roleFitSummary(company.hiring.roles);
@@ -322,9 +353,10 @@ function PacketView(props: {
 
   return (
     <>
-      <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3, display: "flex", gap: 12 }}>
-        <span onClick={onBack} style={{ cursor: "pointer" }}>&larr; New lookup</span>
+      <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3, display: "flex", gap: 12, alignItems: "center" }}>
+        <button onClick={onBack} style={{ border: 0, padding: 0, background: "none", color: "inherit", font: "inherit", letterSpacing: "inherit", textTransform: "inherit", cursor: "pointer" }}>&larr; {backLabel}</button>
         <span>Packet · {packet?.tier === "mid" ? "deep pass" : "fast pass"}{cached ? " · cached" : ""}</span>
+        <button disabled={refreshBusy} onClick={onRefresh} style={{ marginLeft: "auto", border: 0, padding: 0, background: "none", color: C.accent, font: "inherit", letterSpacing: "inherit", textTransform: "inherit", cursor: refreshBusy ? "wait" : "pointer", opacity: refreshBusy ? .55 : 1 }}>{refreshBusy ? "Refreshing…" : "Refresh research"}</button>
       </div>
       <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>
         {company.name ?? company.domain}
@@ -587,10 +619,13 @@ function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void
 }
 
 /* ---------- Queue ---------- */
-function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolean }) {
+function QueueView({ onOpen, openingDomain, error, tab, setTab, search, setSearch }: {
+  onOpen: (d: string) => void; openingDomain: string | null; error: string | null;
+  tab: "today" | "research" | "activity"; setTab: (tab: "today" | "research" | "activity") => void;
+  search: string; setSearch: (value: string) => void;
+}) {
   const [rows, setRows] = useState<(Company & { heat?: string })[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<"today" | "research" | "activity">("today");
   const [loadError, setLoadError] = useState<string | null>(null);
   const loadId = useRef(0);
 
@@ -614,6 +649,9 @@ function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolea
   const callBg: Record<string, string> = {
     chase: C.wash, watch: "#f3ecd8", skip: "none",
   };
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleRows = rows?.filter(c => !normalizedSearch || [c.name, c.domain, ...c.hiring.roles]
+    .filter(Boolean).some(value => String(value).toLowerCase().includes(normalizedSearch)));
 
   return (
     <>
@@ -623,17 +661,24 @@ function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolea
       <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
         {(["today", "research", "activity"] as const).map(value => <button key={value} onClick={() => setTab(value)} style={tab === value ? primaryButton : secondaryButton}>{value === "today" ? "Today" : value === "research" ? "Needs research / Watch" : "Activity"}</button>)}
       </div>
-      {loadError && <p style={{ color: "#a33" }}>{loadError}</p>}
+      <label style={{ display: "block", marginTop: 14 }}>
+        <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>Search companies</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search companies or roles"
+          style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px", border: `1px solid ${C.rule}`, borderRadius: 2, background: "#fff", color: C.ink, font: "inherit", fontSize: 14 }} />
+      </label>
+      {(loadError || error) && <p style={{ color: "#a33" }}>{loadError || error}</p>}
       {loading && <p style={{ color: C.ink3, marginTop: 20 }}>Loading…</p>}
-      {rows && rows.length === 0 && <p style={{ color: C.ink3, marginTop: 20 }}>{tab === "today" ? "No chase recommendations meet the current checks. See Needs research / Watch for incomplete prospects." : "Nothing in this view yet."}</p>}
-      {rows && rows.length > 0 && (
+      {visibleRows && visibleRows.length === 0 && <p style={{ color: C.ink3, marginTop: 20 }}>{normalizedSearch ? "No companies match that search." : tab === "today" ? "No chase recommendations meet the current checks. See Needs research / Watch for incomplete prospects." : "Nothing in this view yet."}</p>}
+      {visibleRows && visibleRows.length > 0 && (
         <ul style={{ margin: "22px 0 0", padding: 0, listStyle: "none" }}>
-          {rows.map((c) => {
+          {visibleRows.map((c) => {
             const call = c.packet?.fast?.verdict?.call ?? ((c.heat === "hot" || c.heat === "warm") ? "chase" : "watch");
+            const opening = openingDomain === c.domain;
             return (
-              <li key={c.domain} onClick={() => !busy && onOpen(c.domain)} style={{
-                padding: "12px 0", borderBottom: `1px solid ${C.rule}`, cursor: "pointer",
-                display: "flex", gap: 14, alignItems: "baseline",
+              <li key={c.domain} style={{ borderBottom: `1px solid ${C.rule}` }}>
+              <button onClick={() => onOpen(c.domain)} disabled={Boolean(openingDomain)} aria-busy={opening} style={{
+                width: "100%", padding: "12px 4px", border: 0, background: opening ? C.wash : "transparent", cursor: openingDomain ? "wait" : "pointer",
+                display: "flex", gap: 14, alignItems: "baseline", textAlign: "left", color: C.ink, font: "inherit", opacity: openingDomain && !opening ? .55 : 1,
               }}>
                 <span style={{
                   fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 600,
@@ -643,7 +688,8 @@ function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolea
                 }}>{tab === "activity" ? c.outreach?.state ?? c.status : c.discovery?.decision === "needs_review" ? "Review" : call}</span>
                 <b style={{ fontWeight: 600, minWidth: 150 }}>{c.name ?? c.domain}</b>
                 <span style={{ color: C.ink2, fontSize: 14, flex: 1 }}>{c.hiring.roles.slice(0, 3).join(", ") || c.domain}</span>
-                <span style={{ color: C.ink3, fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{fmtDate(c.lastCheckedAt)}</span>
+                <span style={{ color: opening ? C.accent : C.ink3, fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{opening ? "Opening…" : fmtDate(c.lastCheckedAt)}</span>
+              </button>
               </li>
             );
           })}
