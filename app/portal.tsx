@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 
 // Buddy Scout portal. Three views, one client:
 //   lookup  — type a company name/URL; resolve → confirm → scout
@@ -14,6 +14,7 @@ const C = {
 
 type Candidate = { domain: string; name: string; hint?: string };
 type Packet = {
+  evidenceStatus?: "cited" | "needs-review";
   confidence: "high" | "medium" | "thin";
   verdict?: { call: "chase" | "watch" | "skip"; line: string };
   whoTheyAre: string; hiringSignal: string; wayIn: string;
@@ -28,7 +29,13 @@ type Company = {
   location: string | null; status: string;
   hiring: { isHiring: boolean; roles: string[]; source: string | null; seenAt: string | null };
   sources: string[]; lastCheckedAt: string | null;
+  discovery?: { decision: "qualified" | "needs_review" | "excluded"; reasons: string[] } | null;
+  packet?: { fast: { verdict?: { call?: "chase" | "watch" | "skip"; reason?: string } } | null };
+  lastCheck?: { status: "confirmed-hiring" | "confirmed-empty" | "unavailable"; checkedAt: string; error: string | null } | null;
+  buyer?: { card: BuyerCard; generatedAt: string } | null;
+  outreach?: { state: "unreviewed" | "sent" | "skipped" | "replied" | "meeting"; draft: RecipientDraft | null };
 };
+type RecipientDraft = { recipientName: string | null; recipientTitle: string | null; recipientSourceUrl?: string | null; recipientConfidence?: "confirmed" | "likely" | "thin"; roleFit?: "founder" | "talent" | "eng" | "functional" | "other"; composition?: "buyer-specific" | "addressed-fallback"; firstTouch: string; followUp: string; packetGeneratedAt: string; generatedAt: string };
 type WarmIntro = { name: string; position: string; url: string; strength: number };
 type WarmPath = { warm: boolean; count?: number; boost?: number; intros: WarmIntro[] };
 type BuyerWarm = { direct: boolean; directOwners?: string[]; count: number; owners?: string[]; best: (WarmIntro & { owner?: string })[] };
@@ -40,7 +47,7 @@ type BuyerCandidate = {
 type BuyerCard = {
   companyName: string; domain: string; buyers: BuyerCandidate[];
   location: { companyHq: string | null; companyHqSource: string | null; nearBase: "nyc" | "chicago" | null; note: string };
-  warmSummary: string; confidence: "confirmed" | "likely" | "thin"; sources: string[]; generatedAt: string; notes: string[];
+  warmSummary: string; networkOwners?: string[]; confidence: "confirmed" | "likely" | "thin"; sources: string[]; generatedAt: string; notes: string[];
 };
 type ScoutResp =
   | { ok: true; mode: "packet"; cached: boolean; atsFound: boolean; company: Company; packet: Packet | null; warmPath?: WarmPath }
@@ -61,8 +68,24 @@ function fmtDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-export default function Portal({ seed }: { seed: { company: string; domain: string }[] }) {
-  const [view, setView] = useState<"lookup" | "packet" | "queue">("lookup");
+function roleFitSummary(roles: string[]): { eligible: string[]; leadershipOnly: boolean } {
+  const leadership = /\b(vice president|vp\.?|head of|director|chief|ceo|cto|cfo|coo|cmo|cpo|cro|president)\b/i;
+  const clean = roles.map(role => role.trim()).filter(Boolean);
+  const eligible = clean.filter(role => /\bfounding\b/i.test(role) || !leadership.test(role));
+  return { eligible, leadershipOnly: clean.length > 0 && eligible.length === 0 };
+}
+
+function hiringSetup(source: string | null): string {
+  const s = (source ?? "").toLowerCase();
+  if (s.includes("ashby")) return "Ashby detected · direct integration fit";
+  if (s.includes("greenhouse")) return "Greenhouse detected · direct integration fit";
+  if (s.includes("lever")) return "Lever detected · integration path needs confirmation";
+  if (source) return "Hiring system detected · integration path needs confirmation";
+  return "No public ATS confirmed · verify a Notion or email-to-apply workflow before positioning Buddy as the candidate system";
+}
+
+export default function Portal() {
+  const [view, setView] = useState<"lookup" | "packet" | "queue">("queue");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,8 +98,22 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
   const [buyerCard, setBuyerCard] = useState<BuyerCard | null>(null);
   const [buyerBusy, setBuyerBusy] = useState(false);
   const [buyerErr, setBuyerErr] = useState<string | null>(null);
+  const [recipientDraft, setRecipientDraft] = useState<RecipientDraft | null>(null);
+
+  const requestId = useRef(0);
+  const activeDomain = useRef<string | null>(null);
+  const buyerRequestId = useRef(0);
+  const [actionBusy, setActionBusy] = useState(false);
+  function navigate(v: "lookup" | "queue") {
+    requestId.current++; buyerRequestId.current++; activeDomain.current = null;
+    setBusy(false); setBuyerBusy(false); setActionBusy(false); setError(null); setView(v);
+  }
 
   async function findBuyer(c: Company) {
+    const token = requestId.current;
+    const buyerToken = ++buyerRequestId.current;
+    const current = () => token === requestId.current && buyerToken === buyerRequestId.current && activeDomain.current === c.domain;
+    setRecipientDraft(null);
     setBuyerBusy(true); setBuyerErr(null); setBuyerCard(null);
     try {
       const r = await fetch("/api/buyer", {
@@ -84,10 +121,15 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
         body: JSON.stringify({ domain: c.domain, name: c.name }),
       });
       const j = await r.json();
+      if (!current()) return;
       if (!j.ok) setBuyerErr(j.error || "Buyer research failed.");
-      else setBuyerCard(j.card);
-    } catch (e) { setBuyerErr(String(e)); }
-    finally { setBuyerBusy(false); }
+      else {
+        setBuyerCard(j.card);
+        setRecipientDraft(j.draft ?? null);
+        if (j.company) { setCompany(j.company); setPacket(j.company.lastCheck?.status === "confirmed-hiring" ? j.company.packet?.fast ?? null : null); }
+      }
+    } catch (e) { if (current()) setBuyerErr(String(e)); }
+    finally { if (current()) setBuyerBusy(false); }
   }
 
   async function post(body: Record<string, unknown>): Promise<ScoutResp> {
@@ -99,19 +141,26 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
   }
 
   async function run(body: Record<string, unknown>) {
+    const token = ++requestId.current;
+    buyerRequestId.current++; activeDomain.current = null; setBuyerBusy(false); setActionBusy(false);
     setBusy(true); setError(null); setCandidates(null);
     try {
       const res = await post(body);
+      if (token !== requestId.current) return;
       if (!res.ok) { setError(res.error); return; }
       if (res.mode === "resolve") { setCandidates(res.candidates); return; }
+      activeDomain.current = res.company.domain;
       setCompany(res.company); setPacket(res.packet); setCached(res.cached);
       setWarmPath(res.warmPath ?? null);
-      setBuyerCard(null); setBuyerErr(null);
+      setBuyerCard((res.company.buyer?.card as BuyerCard | undefined) ?? null);
+      setRecipientDraft(res.company.outreach?.draft ?? null);
+      setBuyerErr(null);
       setView("packet");
+      if (res.packet && !res.company.buyer?.card) void findBuyer(res.company);
     } catch (e) {
-      setError(String(e));
+      if (token === requestId.current) setError(String(e));
     } finally {
-      setBusy(false);
+      if (token === requestId.current) setBusy(false);
     }
   }
 
@@ -128,11 +177,11 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
         </div>
         <nav style={{ marginLeft: "auto", display: "flex", gap: 20, fontSize: 13.5, color: C.ink2 }}>
           {(["queue", "lookup"] as const).map((v) => (
-            <a key={v} onClick={() => setView(v)} style={{
+            <a key={v} onClick={() => navigate(v)} style={{
               cursor: "pointer", paddingBottom: 2, textTransform: "capitalize",
               color: view === v ? C.ink : "inherit",
               boxShadow: view === v ? `inset 0 -2px 0 ${C.accent}` : "none",
-            }}>{v === "lookup" ? "New lookup" : v}</a>
+            }}>{v === "lookup" ? "New lookup" : "Today"}</a>
           ))}
         </nav>
       </header>
@@ -141,8 +190,7 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
         {view === "lookup" && (
           <LookupView
             input={input} setInput={setInput} onSubmit={onLookup} busy={busy}
-            error={error} candidates={candidates} pick={pick} seed={seed}
-            quick={(d) => run({ input: d })}
+            error={error} candidates={candidates} pick={pick}
           />
         )}
         {view === "packet" && company && (
@@ -150,9 +198,27 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
             company={company} packet={packet} cached={cached} warmPath={warmPath}
             copied={copied} onCopy={() => { if (packet) { navigator.clipboard.writeText(packet.draft); setCopied(true); setTimeout(() => setCopied(false), 1600); } }}
             onCopyText={(t: string) => { navigator.clipboard.writeText(t); setCopied(true); setTimeout(() => setCopied(false), 1600); }}
-            onBack={() => setView("lookup")}
+            onBack={() => navigate("lookup")}
             buyerCard={buyerCard} buyerBusy={buyerBusy} buyerErr={buyerErr}
+            recipientDraft={recipientDraft} actionBusy={actionBusy} actionError={error}
             onFindBuyer={() => company && findBuyer(company)}
+            onAction={async (action) => {
+              if (actionBusy) return;
+              const token = requestId.current;
+              const domain = company.domain;
+              const current = () => token === requestId.current && activeDomain.current === domain;
+              setActionBusy(true); setError(null);
+              try {
+                const r = await fetch("/api/action", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ domain, action }) });
+                const j = await r.json();
+                if (!current()) return;
+                if (j.ok) {
+                  setCompany(j.company); setRecipientDraft(j.company.outreach?.draft ?? null);
+                  setPacket(j.company.lastCheck?.status === "confirmed-hiring" ? j.company.packet?.fast ?? null : null);
+                } else setError(j.error || "Could not save action.");
+              } catch (e) { if (current()) setError(String(e)); }
+              finally { if (current()) setActionBusy(false); }
+            }}
           />
         )}
         {view === "queue" && <QueueView onOpen={(d) => run({ input: d })} busy={busy} />}
@@ -165,15 +231,15 @@ export default function Portal({ seed }: { seed: { company: string; domain: stri
 function LookupView(props: {
   input: string; setInput: (s: string) => void; onSubmit: (e: React.FormEvent) => void;
   busy: boolean; error: string | null; candidates: Candidate[] | null;
-  pick: (c: Candidate) => void; seed: { company: string; domain: string }[]; quick: (d: string) => void;
+  pick: (c: Candidate) => void;
 }) {
-  const { input, setInput, onSubmit, busy, error, candidates, pick, seed, quick } = props;
+  const { input, setInput, onSubmit, busy, error, candidates, pick } = props;
   return (
     <>
       <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3 }}>New lookup</div>
       <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>Scout a company</h1>
       <p style={{ color: C.ink2, fontSize: 14, maxWidth: "62ch" }}>
-        Paste the company&rsquo;s website &mdash; you know it, so we don&rsquo;t have to guess. We check if they&rsquo;re hiring, find the way in, and write the pitch, every claim traced to a source. (A name works too, but a URL is always exact.)
+        Paste the company&rsquo;s website. We look for current hiring evidence, show our sources, and prepare a draft for your review. Buyer research checks who to approach. A company name works too, but confirm the website before proceeding.
       </p>
 
       <form onSubmit={onSubmit} style={{ display: "flex", gap: 10, margin: "22px 0 6px" }}>
@@ -222,17 +288,7 @@ function LookupView(props: {
         </div>
       )}
 
-      <div style={{ marginTop: 40, fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", color: C.ink3 }}>
-        Try one
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
-        {seed.map((s) => (
-          <button key={s.domain} onClick={() => quick(s.domain)} style={{
-            border: `1px solid ${C.rule}`, borderRadius: 2, padding: "6px 12px",
-            background: "#fff", fontFamily: "inherit", fontSize: 13, color: C.ink, cursor: "pointer",
-          }}>{s.company}</button>
-        ))}
-      </div>
+
     </>
   );
 }
@@ -242,10 +298,19 @@ function PacketView(props: {
   company: Company; packet: Packet | null; cached: boolean;
   warmPath: WarmPath | null;
   copied: boolean; onCopy: () => void; onCopyText: (t: string) => void; onBack: () => void;  buyerCard: BuyerCard | null; buyerBusy: boolean; buyerErr: string | null; onFindBuyer: () => void;
+  recipientDraft: RecipientDraft | null;
+  actionBusy: boolean; actionError: string | null;
+  onAction: (action: "sent" | "skipped" | "replied" | "meeting" | "restored") => Promise<void>;
 }) {
-  const { company, packet, cached, warmPath, copied, onCopy, onCopyText, onBack, buyerCard, buyerBusy, buyerErr, onFindBuyer } = props;  const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
-  const conf = packet?.confidence ?? (company.hiring.isHiring ? "medium" : "thin");
-  const hiring = company.hiring.isHiring;
+  const { company, packet, cached, warmPath, copied, onCopy, onCopyText, onBack, buyerCard, buyerBusy, buyerErr, onFindBuyer, recipientDraft, onAction, actionBusy, actionError } = props;  const num: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
+  const signalAge = Date.now() - Date.parse(company.hiring.seenAt ?? "");
+  const hiring = company.hiring.isHiring && company.lastCheck?.status === "confirmed-hiring" && signalAge >= 0 && signalAge <= 3 * 86400_000;
+  const roleFit = roleFitSummary(company.hiring.roles);
+  const conf = hiring ? packet?.confidence ?? "thin" : "thin";
+  const usableDraft = recipientDraft && hiring && packet?.evidenceStatus === "cited" &&
+    recipientDraft.packetGeneratedAt === packet.generatedAt && recipientDraft.firstTouch.trim() &&
+    recipientDraft.followUp.trim() && recipientDraft.composition === "buyer-specific" &&
+    (!company.discovery || company.discovery.decision === "qualified");
 
   const Section = ({ n, title, children }: { n: string; title: string; children: React.ReactNode }) => (
     <section style={{ margin: "0 0 30px", paddingLeft: 34, position: "relative" }}>
@@ -268,7 +333,7 @@ function PacketView(props: {
           padding: "3px 8px", borderRadius: 2, fontWeight: 600, verticalAlign: 3, marginLeft: 10,
           border: `1px solid ${hiring ? C.accent : C.rule}`,
           color: hiring ? C.accent : C.ink3, background: hiring ? C.wash : "none",
-        }}>{hiring ? "Hiring now" : "No signal"}</span>
+        }}>{hiring ? "Hiring verified" : company.lastCheck?.status === "confirmed-empty" ? "No listed roles" : "Needs recheck"}</span>
       </h1>
       <p style={{ color: C.ink2, fontSize: 14 }}>
         <a href={`https://${company.domain}`} target="_blank" rel="noreferrer" style={{ color: C.ink2 }}>{company.domain}</a>
@@ -276,6 +341,8 @@ function PacketView(props: {
         {company.location ? <>&nbsp;·&nbsp;{company.location}</> : null}
       </p>
 
+      {company.lastCheck?.status === "unavailable" && <p style={{ color: "#a33" }}>The latest hiring check failed. Previous evidence is historical, not a current send recommendation.</p>}
+      {company.discovery && company.discovery.decision !== "qualified" && <p style={{ color: "#8a6d1f" }}>ICP: {company.discovery.decision === "excluded" ? "outside the current target" : "needs research"}. {company.discovery.reasons.join(". ")}</p>}
       <dl style={{ display: "flex", gap: 34, margin: "22px 0 34px", padding: "14px 0", borderTop: `1px solid ${C.rule}`, borderBottom: `1px solid ${C.rule}`, ...num }}>
         {[
           ["Last checked", fmtDate(company.lastCheckedAt)],
@@ -315,34 +382,34 @@ function PacketView(props: {
           <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
             <li style={liS}><b style={liB}>Open roles</b><span>{company.hiring.roles.slice(0, 6).join(", ")}{company.hiring.roles.length > 6 ? `, +${company.hiring.roles.length - 6} more` : ""}</span></li>
             <li style={liS}><b style={liB}>Read</b><span>{packet?.hiringSignal ?? "—"}</span></li>
+            <li style={liS}><b style={liB}>Role fit</b><span>{roleFit.leadershipOnly ? "Not a fit: every opening is VP/head/director/C-suite level." : `${roleFit.eligible.length} assessment-fit ${roleFit.eligible.length === 1 ? "role" : "roles"} (entry through senior, plus founding roles).`}</span></li>
+            <li style={liS}><b style={liB}>Hiring setup</b><span>{hiringSetup(company.hiring.source)}</span></li>
             {company.hiring.source && <li style={liS}><b style={liB}>Source</b><span style={{ color: C.ink3, fontSize: 12.5, wordBreak: "break-all" }}>{company.hiring.source}</span></li>}
           </ul>
         ) : (
-          <p style={{ color: C.ink2, maxWidth: "62ch" }}>No public ATS board found. Hiring status unconfirmed from structured data — treat as a watch, not a target.</p>
+          <p style={{ color: C.ink2, maxWidth: "62ch" }}>{company.lastCheck?.status === "confirmed-empty" ? "The checked board has no listed roles. If no ATS is used, verify whether applications run through Notion or email before positioning Buddy as the candidate-management system." : "Current hiring is unconfirmed. Verify the ATS or a Notion/email-to-apply workflow before outreach."}</p>
         )}
       </Section>
 
       {packet && (
         <>
-          <Section n="03" title="The way in">
-            <p style={{ maxWidth: "62ch", margin: "0 0 10px" }}>{packet.wayIn}</p>
-            {warmPath?.warm && warmPath.intros.length ? (
-              <div style={{ borderLeft: `2px solid ${C.accent}`, padding: "6px 0 6px 14px", margin: "12px 0", color: C.ink }}>
-                <b>Warm path — you know {warmPath.count} {warmPath.count === 1 ? "person" : "people"} here.</b>
-                <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
-                  {warmPath.intros.map((i) => (
-                    <li key={i.url} style={{ margin: "0 0 6px", fontSize: 13.5, lineHeight: 1.5 }}>
-                      <a href={i.url} target="_blank" rel="noreferrer" style={{ color: C.accent, fontWeight: 600, textDecoration: "none" }}>{i.name}</a>
-                      <span style={{ color: C.ink2 }}> — {i.position}</span>
-                      {i.strength >= 70 && <span style={{ color: C.ink3, fontSize: 11.5 }}> · strong intro</span>}
-                    </li>
-                  ))}
-                </ul>
-                <p style={{ color: C.ink3, fontSize: 12, margin: "6px 0 0" }}>Reach out through them for a warm intro instead of going cold.</p>
-              </div>
+          <Section n="03" title="Who to approach & the way in">
+            {buyerCard ? (
+              <>
+                <p style={{ maxWidth: "62ch", margin: "0 0 14px", color: C.ink2 }}><b>Company angle.</b> {packet.wayIn}</p>
+                <BuyerCardView card={buyerCard} onRerun={onFindBuyer} />
+              </>
             ) : (
-              <div style={{ borderLeft: `2px solid ${C.rule}`, padding: "2px 0 2px 14px", margin: "12px 0", color: C.ink2 }}>
-                <b>Warm path.</b> No mutual connection found in your network — cold outreach for this one.
+              <div style={{ margin: "0 0 4px" }}>
+                <p style={{ color: C.ink2, maxWidth: "62ch", margin: "0 0 12px" }}>
+                  Scout is completing the buyer and way-in pass to name and source the actual person, locate them when public, and check every uploaded team LinkedIn network.
+                </p>
+                {!buyerBusy && <button onClick={onFindBuyer} style={{
+                  font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
+                  border: `1px solid ${C.accent}`, background: "#fff", color: C.accent, fontWeight: 600,
+                }}>Complete buyer &amp; way-in research &rarr;</button>}
+                {buyerBusy && <p style={{ color: C.ink2 }}>Researching named buyers, locations, and LinkedIn warm paths…</p>}
+                {buyerErr && <p style={{ color: "#b23" }}>Couldn&rsquo;t complete buyer research: {buyerErr}</p>}
               </div>
             )}
           </Section>
@@ -353,30 +420,19 @@ function PacketView(props: {
             <p style={{ maxWidth: "62ch", margin: "0 0 10px" }}><b>Counter.</b> {packet.strategy.counter}</p>
           </Section>
 
-          <Section n="05" title="The draft">
+          <Section n="05" title="Working copy · not send-ready">
+            <p style={{ color: "#8a6d1f", maxWidth: "62ch" }}>This company-level copy is reference material. The send-ready version appears only after Scout verifies a named, sourced buyer and composes the addressed draft below.</p>
             {packet.hook && (
               <div style={{ marginBottom: 18 }}>
-                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.ink3, marginBottom: 6 }}>First message — the hook (send this)</div>
+                <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.ink3, marginBottom: 6 }}>First-message concept · preview only</div>
                 <div style={{ background: C.wash, border: `1px solid ${C.accent}`, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, whiteSpace: "pre-wrap", color: C.ink }}>
                   {packet.hook}
-                </div>
-                <div style={{ marginTop: 10 }}>
-                  <button onClick={() => onCopyText(packet.hook || "")} style={{
-                    font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
-                    border: `1px solid ${C.accent}`, background: C.accent, color: "#fff", fontWeight: 550,
-                  }}>{copied ? "Copied ✓" : "Copy hook"}</button>
                 </div>
               </div>
             )}
             <div style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: C.ink3, marginBottom: 6 }}>Fuller follow-up</div>
             <div style={{ background: "#fff", border: `1px solid ${C.rule}`, padding: "18px 20px", fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>
               {packet.draft}
-            </div>
-            <div style={{ marginTop: 14 }}>
-              <button onClick={onCopy} style={{
-                font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
-                border: `1px solid ${C.rule}`, background: "#fff", color: C.ink, fontWeight: 550,
-              }}>{copied ? "Copied ✓" : "Copy follow-up"}</button>
             </div>
             {packet.citations && packet.citations.length > 0 ? (
               <div style={{ marginTop: 16, borderTop: `1px solid ${C.rule}`, paddingTop: 12 }}>
@@ -397,31 +453,40 @@ function PacketView(props: {
               </div>
             ) : (
               <div style={{ marginTop: 12, color: C.ink3, fontSize: 12.5 }}>
-                Every claim in this draft traces to a verified fact.
+                No source citations were returned. Review this copy before sending.
               </div>
             )}
           </Section>
         </>
       )}
 
-      {packet && (
-        <Section n="06" title="Who to approach">
-          {!buyerCard && !buyerBusy && (
-            <div style={{ margin: "0 0 4px" }}>
-              <p style={{ color: C.ink2, maxWidth: "62ch", margin: "0 0 12px" }}>
-                Run a deeper research pass to name the actual decision-maker, find their city (relative to NYC / Chicago), and your warmest path in. Takes a few seconds.
-              </p>
-              <button onClick={onFindBuyer} style={{
-                font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer",
-                border: `1px solid ${C.accent}`, background: "#fff", color: C.accent, fontWeight: 600,
-              }}>Find the buyer &rarr;</button>
-            </div>
-          )}
-          {buyerBusy && <p style={{ color: C.ink2 }}>Researching decision-makers &amp; warm paths…</p>}
-          {buyerErr && <p style={{ color: "#b23" }}>Couldn&rsquo;t complete buyer research: {buyerErr}</p>}
-          {buyerCard && <BuyerCardView card={buyerCard} onRerun={onFindBuyer} />}
+      {usableDraft && recipientDraft && (
+        <Section n="06" title="Addressed draft · review before sending">
+          <p style={{ color: C.ink2, fontSize: 13.5, margin: "0 0 10px" }}>
+            Addressed to <b>{recipientDraft.recipientName}</b>{recipientDraft.recipientTitle ? `, ${recipientDraft.recipientTitle}` : ""}. Scout records your decision but never sends for you.
+          </p>
+          <div style={{ background: C.wash, border: `1px solid ${C.accent}`, padding: "16px 18px", fontSize: 15, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+            {recipientDraft.firstTouch}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+            <button onClick={() => onCopyText(recipientDraft.firstTouch)} style={primaryButton}>{copied ? "Copied ✓" : "Copy message"}</button>
+
+          </div>
+
         </Section>
       )}
+
+      <Section n="07" title="Your decision">
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button disabled={actionBusy} onClick={() => onAction("skipped")} style={secondaryButton}>Skip</button>
+          <button disabled={actionBusy} onClick={() => onAction("sent")} style={secondaryButton}>Mark sent</button>
+          <button disabled={actionBusy} onClick={() => onAction("replied")} style={secondaryButton}>Mark replied</button>
+          <button disabled={actionBusy} onClick={() => onAction("meeting")} style={secondaryButton}>Meeting booked</button>
+          {company.outreach?.state !== "unreviewed" && <button disabled={actionBusy || company.status === "closed"} onClick={() => onAction("restored")} style={secondaryButton}>Restore</button>}
+        </div>
+        <p style={{ color: C.ink2, fontSize: 13 }}>Status: {company.outreach?.state ?? company.status}. Recording a decision never sends a message.</p>
+        {actionError && <p style={{ color: "#a33" }}>{actionError}</p>}
+      </Section>
 
       <footer style={{ borderTop: `1px solid ${C.rule}`, marginTop: 44, paddingTop: 14, display: "flex", justifyContent: "space-between", color: C.ink3, fontSize: 12.5, ...num }}>
         <span>{packet ? <>Packet generated {new Date(packet.generatedAt).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</> : "No packet"}</span>
@@ -432,6 +497,8 @@ function PacketView(props: {
 }
 const liS: React.CSSProperties = { padding: "7px 0", borderBottom: `1px solid ${C.rule}`, display: "flex", gap: 14, fontSize: 14 };
 const liB: React.CSSProperties = { fontWeight: 600, minWidth: 110, color: C.ink2 };
+const primaryButton: React.CSSProperties = { font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer", border: `1px solid ${C.accent}`, background: C.accent, color: "#fff", fontWeight: 550 };
+const secondaryButton: React.CSSProperties = { font: "inherit", fontSize: 13.5, padding: "7px 15px", borderRadius: 2, cursor: "pointer", border: `1px solid ${C.rule}`, background: "#fff", color: C.ink, fontWeight: 550 };
 
 /* ---------- Buyer Card (deep pass) ---------- */
 function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void }) {
@@ -463,6 +530,12 @@ function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void
 
       {/* warm-path top line */}
       <p style={{ maxWidth: "62ch", margin: "0 0 16px", color: C.ink }}>{card.warmSummary}</p>
+
+      {card.buyers.length === 0 && (
+        <div style={{ borderLeft: "2px solid #8a6d1f", padding: "7px 0 7px 14px", margin: "0 0 14px", color: C.ink2 }}>
+          <b>Not send-ready.</b> Scout did not verify a named buyer with a public source.
+        </div>
+      )}
 
       {/* ranked buyers */}
       <ol style={{ listStyle: "none", padding: 0, margin: "0 0 12px", counterReset: "b" }}>
@@ -517,36 +590,46 @@ function BuyerCardView({ card, onRerun }: { card: BuyerCard; onRerun: () => void
 function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolean }) {
   const [rows, setRows] = useState<(Company & { heat?: string })[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<"today" | "research" | "activity">("today");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadId = useRef(0);
 
   async function load() {
-    setLoading(true);
+    const token = ++loadId.current;
+    setLoading(true); setRows(null); setLoadError(null);
     try {
-      const r = await fetch("/api/scout?queue=all");
+      const r = await fetch(`/api/scout?queue=${tab}`);
       const j = await r.json();
+      if (token !== loadId.current) return;
+      if (!j.ok) throw new Error(j.error || "Could not load queue");
       setRows(j.companies ?? []);
-    } catch { setRows([]); }
-    setLoading(false);
+    } catch (error) { if (token === loadId.current) setLoadError(String(error)); }
+    if (token === loadId.current) setLoading(false);
   }
-  if (rows === null && !loading) load();
+  useEffect(() => { load(); return () => { loadId.current++; }; }, [tab]);
 
-  const heatColor: Record<string, string> = {
-    hot: C.accent, warm: "#8a6d1f", cool: C.ink3, cold: C.ink3,
+  const callColor: Record<string, string> = {
+    chase: C.accent, watch: "#8a6d1f", skip: C.ink3,
   };
-  const heatBg: Record<string, string> = {
-    hot: C.wash, warm: "#f3ecd8", cool: "none", cold: "none",
+  const callBg: Record<string, string> = {
+    chase: C.wash, watch: "#f3ecd8", skip: "none",
   };
 
   return (
     <>
-      <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3 }}>Queue</div>
-      <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>Ripest first</h1>
-      <p style={{ color: C.ink2, fontSize: 14 }}>Sorted by how ready each lead is to act on — freshest hiring signal, most open roles, warm paths up top. Hot leads are rechecked daily.</p>
+      <div style={{ fontSize: 11.5, letterSpacing: ".11em", textTransform: "uppercase", color: C.ink3 }}>Today</div>
+      <h1 style={{ fontSize: 27, letterSpacing: "-.025em", margin: ".35rem 0 .5rem", fontWeight: 640 }}>Who to hit today</h1>
+      <p style={{ color: C.ink2, fontSize: 14 }}>Untouched chase recommendations with recent hiring evidence, strongest first. Buyer research and unknown ICP details remain visible; review the draft before sending.</p>
+      <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+        {(["today", "research", "activity"] as const).map(value => <button key={value} onClick={() => setTab(value)} style={tab === value ? primaryButton : secondaryButton}>{value === "today" ? "Today" : value === "research" ? "Needs research / Watch" : "Activity"}</button>)}
+      </div>
+      {loadError && <p style={{ color: "#a33" }}>{loadError}</p>}
       {loading && <p style={{ color: C.ink3, marginTop: 20 }}>Loading…</p>}
-      {rows && rows.length === 0 && <p style={{ color: C.ink3, marginTop: 20 }}>Nothing in the queue yet. Run a lookup to start filling it.</p>}
+      {rows && rows.length === 0 && <p style={{ color: C.ink3, marginTop: 20 }}>{tab === "today" ? "No chase recommendations meet the current checks. See Needs research / Watch for incomplete prospects." : "Nothing in this view yet."}</p>}
       {rows && rows.length > 0 && (
         <ul style={{ margin: "22px 0 0", padding: 0, listStyle: "none" }}>
           {rows.map((c) => {
-            const heat = c.heat ?? "cold";
+            const call = c.packet?.fast?.verdict?.call ?? ((c.heat === "hot" || c.heat === "warm") ? "chase" : "watch");
             return (
               <li key={c.domain} onClick={() => !busy && onOpen(c.domain)} style={{
                 padding: "12px 0", borderBottom: `1px solid ${C.rule}`, cursor: "pointer",
@@ -555,9 +638,9 @@ function QueueView({ onOpen, busy }: { onOpen: (d: string) => void; busy: boolea
                 <span style={{
                   fontSize: 10.5, letterSpacing: ".06em", textTransform: "uppercase", fontWeight: 600,
                   padding: "2px 7px", borderRadius: 2, minWidth: 42, textAlign: "center",
-                  color: heatColor[heat], background: heatBg[heat],
-                  border: `1px solid ${heat === "hot" ? C.accent : heat === "warm" ? "#d8c896" : C.rule}`,
-                }}>{heat}</span>
+                  color: callColor[call], background: callBg[call],
+                  border: `1px solid ${call === "chase" ? C.accent : call === "watch" ? "#d8c896" : C.rule}`,
+                }}>{tab === "activity" ? c.outreach?.state ?? c.status : c.discovery?.decision === "needs_review" ? "Review" : call}</span>
                 <b style={{ fontWeight: 600, minWidth: 150 }}>{c.name ?? c.domain}</b>
                 <span style={{ color: C.ink2, fontSize: 14, flex: 1 }}>{c.hiring.roles.slice(0, 3).join(", ") || c.domain}</span>
                 <span style={{ color: C.ink3, fontSize: 12.5, fontVariantNumeric: "tabular-nums" }}>{fmtDate(c.lastCheckedAt)}</span>

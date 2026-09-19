@@ -20,6 +20,7 @@ export interface Packet {
   draft: string;
   citedFactIds: string[];   // which facts the writer used
   citations: Citation[];    // resolved: each cited id -> its readable source (for the UI)
+  evidenceStatus: "cited" | "needs-review";
   sources: Source[];
   tier: Tier;
   generatedAt: string;
@@ -52,9 +53,9 @@ If the facts are thin, say so plainly and keep claims general rather than invent
 
 Voice: sharp human salesperson. No corporate buzzwords, no filler, no "in today's fast-paced world", no em-dash abuse. Short, direct, real. Vary sentence length.
 
-THE VERDICT (most important line on the card): a decisive call — "chase", "watch", or "skip" — plus ONE sentence telling Jolene exactly what to do and why, naming the sharpest signal from the facts. Example: "Chase this. They've posted 40 GTM roles in two weeks — too many applicants for every strong one to get a real first look manually." Be decisive. "chase" when there's a real, active hiring signal; "watch" when thin/unclear; "skip" when no signal.
+THE VERDICT (most important line on the card): a decisive call — "chase", "watch", or "skip" — plus ONE sentence telling Jolene exactly what to do and why, naming the sharpest signal from the facts. Example: "Chase this. They've posted 40 GTM roles in two weeks — too many applicants for every strong one to get a real first look manually." Be decisive. Buddy's assessment sweet spot is entry-through-senior hiring plus founding roles. If every listed opening is VP/head/director/C-suite, call "skip" even though the company is hiring. "chase" when there is a real active signal with at least one in-scope role; "watch" when thin/unclear; "skip" when no signal or only executive leadership roles.
 
-THE WAY IN: This packet does not automatically have leadership or network evidence. Only name a person, title, team, or warm path when a verified contact/warmpath fact explicitly supports it. Otherwise say that buyer research is needed; do not guess from company size, role count, or job titles. The separate buyer pass will decide whether the owner is a founder, recruiting leader, or functional hiring leader.
+THE WAY IN: Do not output process commentary such as "buyer research is needed." This field is only a short company-level angle based on verified facts. Never name or recommend a person/title/team unless a verified contact fact supports it. The application combines this angle with the completed named-buyer and LinkedIn-network pass before anything becomes send-ready.
 
 THE HOOK (the first message she actually sends): 1-2 sentences of genuine curiosity about THEIR specific pain, drawn from the facts. It must NOT mention Buddy, Dev Difference, or any product/feature. Its only job is to earn a reply. Connect the verified hiring signal to the human cost of giving every applicant a fair first look: strong people disappearing in volume, or hiring teams spending scarce human interview time on obvious non-fits. Example: "Forty-seven open roles is a lot of first conversations to get right. How are you making sure strong applicants don't disappear in the volume before a hiring manager meets them?" Personal, curious, specific. This is NOT a pitch.
 
@@ -88,7 +89,7 @@ export async function generatePacket(
       `Write the packet. Cite fact ids for every specific claim.`,
   });
 
-  const parsed = JSON.parse(raw) as Omit<Packet, "sources" | "tier" | "generatedAt" | "citations">;
+  const parsed = JSON.parse(raw) as Omit<Packet, "sources" | "tier" | "generatedAt" | "citations" | "evidenceStatus">;
 
   // Trust floor: the packet can never claim more confidence than the facts support.
   const factFloor = bundleConfidence(bundle);
@@ -100,7 +101,9 @@ export async function generatePacket(
   // "LinkedIn" with a link instead of opaque "f1, f2". Ids the writer cited that
   // don't exist are dropped (never fabricate a citation).
   const byId = new Map(bundle.facts.map((f) => [f.id, f]));
-  const citations: Citation[] = (parsed.citedFactIds ?? [])
+  const requestedIds = Array.isArray(parsed.citedFactIds) ? [...new Set(parsed.citedFactIds)] : [];
+  const citedFactIds = requestedIds.filter((id) => byId.has(id));
+  const citations: Citation[] = citedFactIds
     .map((id) => byId.get(id))
     .filter((f): f is NonNullable<typeof f> => Boolean(f))
     .map((f) => ({ id: f.id, label: sourceLabel(f.source.kind), ref: f.source.ref, claim: f.claim }));
@@ -108,8 +111,8 @@ export async function generatePacket(
   return {
     ...parsed,
     verdict: {
-      call: (parsed.verdict?.call === "chase" || parsed.verdict?.call === "skip")
-        ? parsed.verdict.call : (parsed.verdict?.call ?? "watch"),
+      call: (parsed.verdict?.call === "chase" || parsed.verdict?.call === "skip" || parsed.verdict?.call === "watch")
+        ? parsed.verdict.call : "watch",
       line: stripFactMarkers(parsed.verdict?.line ?? ""),
     },
     whoTheyAre: stripFactMarkers(parsed.whoTheyAre),
@@ -123,7 +126,9 @@ export async function generatePacket(
       counter: stripFactMarkers(parsed.strategy?.counter ?? ""),
     },
     confidence,
+    citedFactIds,
     citations,
+    evidenceStatus: citations.length > 0 && citedFactIds.length === requestedIds.length ? "cited" : "needs-review",
     sources: bundleSources(bundle),
     tier,
     generatedAt: new Date().toISOString(),

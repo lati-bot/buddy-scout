@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { scout } from "@/lib/scout";
 import { asDomain, resolveName } from "@/lib/resolve";
-import { listByStatus, listQueue, withHeat } from "@/lib/repo";
+import { listByStatus, listQueue, listToday, listWorkflowQueue, withHeat } from "@/lib/repo";
 import { isAuthed } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -18,7 +18,13 @@ export async function GET(req: NextRequest) {
       // "all" spans every open status, ripeness-ordered; "hiring" narrows to
       // confirmed-hiring. Both surface the ripest lead first.
       const rows =
-        q === "all" ? await listQueue(60) : await listByStatus("hiring", 60);
+        q === "today"
+          ? await listToday(8)
+          : q === "research" || q === "activity"
+          ? await listWorkflowQueue(q)
+          : q === "all"
+          ? await listQueue(60)
+          : await listByStatus("hiring", 60);
       const companies = rows.map(withHeat);
       return NextResponse.json({ ok: true, companies });
     } catch (e: any) {

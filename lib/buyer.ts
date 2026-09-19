@@ -22,7 +22,7 @@
 // "likely" and show the reasoning — we never dress a guess as a fact.
 
 import { complete } from "./llm";
-import { connectionsAtCompany, ownersOf, companyKey, type Connection } from "./connections";
+import { connectionNetworkOwners, connectionsAtCompany, ownersOf, companyKey, type Connection } from "./connections";
 import type { Company } from "./company";
 
 /* ------------------------------------------------------------------ *
@@ -64,6 +64,7 @@ export interface BuyerCard {
   buyers: BuyerCandidate[];     // ranked, best-approach first
   location: Location;
   warmSummary: string;          // top-line warm-path sentence
+  networkOwners?: string[];     // whose uploaded LinkedIn exports were actually checked
   confidence: BuyerConfidence;  // overall floor
   sources: string[];            // every URL cited, deduped
   generatedAt: string;
@@ -74,6 +75,12 @@ export interface BuyerContext {
   size?: string | null;
   stage?: string | null;
   hiringRoles?: string[];
+}
+
+export function isNamedSourcedBuyer(
+  buyer: Pick<BuyerCandidate, "name" | "sourceUrl">
+): boolean {
+  return Boolean(buyer.name?.trim() && buyer.sourceUrl && /^https?:\/\//i.test(buyer.sourceUrl));
 }
 
 /* ------------------------------------------------------------------ *
@@ -164,7 +171,10 @@ export async function buildBuyerCard(
   const sourceSet = new Set<string>();
 
   // --- 1. WARM PATH (free, instant, our edge — do it first). --------------
-  const conns = await connectionsAtCompany(name);
+  const [conns, networkOwners] = await Promise.all([
+    connectionsAtCompany(name),
+    connectionNetworkOwners(),
+  ]);
   // Backfill-safe: connections uploaded before the multi-owner field default to "Tomi".
   for (const c of conns) if (!c.owner) { c.owner = "Tomi"; c.ownerKey = "tomi"; }
   const teamOwners = ownersOf(conns);
@@ -276,25 +286,13 @@ export async function buildBuyerCard(
     if (e.sourceUrl) sourceSet.add(e.sourceUrl);
   }
 
-  // If we found nobody by name, still hand Jolene the role targets to aim for.
-  if (!cands.length) {
-    for (const fit of fallbackFits(company)) {
-      cands.push({
-        name: null,
-        title: targetTitle(fit),
-        roleFit: fit,
-        why: whyForFit(fit),
-        city: fit === "founder" && hqGuess ? hqGuess : null,
-        cityBasis: fit === "founder" && hqGuess ? "assumed-hq" : "unknown",
-        confidence: "thin",
-        sourceUrl: null,
-        warm: companyWarm,
-        nearBaseScore: baseFor(fit === "founder" ? hqGuess : null) ? 20 : 0,
-      });
-    }
+  // A title alone, or a name without a verifiable source, is unfinished research.
+  const verifiedCands = cands.filter(isNamedSourcedBuyer);
+  if (!verifiedCands.length) {
+    notes.push(`No named buyer was verified. Likely role targets: ${fallbackFits(company).map(targetTitle).join(", ")}. Do not send until a person is named and sourced.`);
   }
 
-  const ranked = rankBuyers(cands, company).map(({ nearBaseScore, ...b }) => b);
+  const ranked = rankBuyers(verifiedCands, company).map(({ nearBaseScore, ...b }) => b);
 
   // --- 4. Location summary (relative to her two bases). -----------------
   const topNear = ranked.map((b) => baseFor(b.city)).find(Boolean) ?? baseFor(hqGuess);
@@ -316,7 +314,9 @@ export async function buildBuyerCard(
     ? `${fmtOwners(directOwners)} ${directOwners.length === 1 ? "knows" : "know"} ${directBuyer.name} directly — that's the warm route to this buyer. ${directOwners.length === 1 ? (isSelf(directOwners[0]) ? "Reach out yourself." : `Ask ${directOwners[0]} to broker it.`) : "Go through whichever of them you're closest to."}`
     : conns.length
     ? `${teamOwners.length > 1 ? `${fmtOwners(teamOwners)} know` : `${fmtOwners(teamOwners)} knows`} ${conns.length} ${conns.length === 1 ? "person" : "people"} at ${name}${warmTop[0] ? ` (strongest: ${warmTop[0].name}, ${warmTop[0].position} — via ${warmTop[0].owner})` : ""} — ask for a warm intro to the buyer.`
-    : `No one on the team knows anyone at ${name} yet — cold approach. Lead with the specific hiring signal.`;
+    : networkOwners.length
+    ? `Checked ${fmtOwners(networkOwners)}'s uploaded LinkedIn ${networkOwners.length === 1 ? "network" : "networks"}; no connection at ${name} was found. Treat this as cold unless another team network is added.`
+    : `No LinkedIn connection export is loaded, so the warm path has not been checked. Do not label this cold yet.`;
 
   const confidence: BuyerConfidence = ranked.some((b) => b.confidence === "confirmed")
     ? "confirmed"
@@ -330,6 +330,7 @@ export async function buildBuyerCard(
     buyers: ranked.slice(0, 4),
     location,
     warmSummary,
+    networkOwners,
     confidence,
     sources: [...sourceSet],
     generatedAt: new Date().toISOString(),

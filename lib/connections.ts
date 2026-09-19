@@ -159,6 +159,30 @@ export async function connectionsAtCompany(companyName: string): Promise<Connect
   return resources.sort((a, b) => b.strength - a.strength);
 }
 
+/** Which team members actually have an uploaded LinkedIn export in the store. */
+export function normalizeNetworkOwners(owners: string[], hasLegacyRecords: boolean): string[] {
+  const all = hasLegacyRecords ? [...owners, "Tomi"] : owners;
+  const unique = new Map<string, string>();
+  for (const owner of all) {
+    const key = ownerKey(owner);
+    if (key && !unique.has(key)) unique.set(key, owner.trim());
+  }
+  return [...unique.values()].sort((a, b) => a.localeCompare(b));
+}
+
+export async function connectionNetworkOwners(): Promise<string[]> {
+  const container = await getConnectionsContainer();
+  const [{ resources: owners }, { resources: legacyCounts }] = await Promise.all([
+    container.items.query<string>({
+      query: "SELECT DISTINCT VALUE c.owner FROM c WHERE IS_DEFINED(c.owner) AND NOT IS_NULL(c.owner) AND c.owner != ''",
+    }).fetchAll(),
+    container.items.query<number>({
+      query: "SELECT VALUE COUNT(1) FROM c WHERE NOT IS_DEFINED(c.owner) OR IS_NULL(c.owner) OR c.owner = ''",
+    }).fetchAll(),
+  ]);
+  return normalizeNetworkOwners(owners, (legacyCounts[0] ?? 0) > 0);
+}
+
 /** Distinct owners (team members) whose networks reach this company. */
 export function ownersOf(conns: Connection[]): string[] {
   const seen = new Map<string, string>();

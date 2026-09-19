@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:buyer": "tsx scripts/test-buyer-ranking.ts"
+    "test:buyer": "tsx scripts/test-buyer-ranking.ts",
+    "test:jolene": "tsx scripts/test-jolene-feedback.ts",
+    "test": "npm run test:buyer && npm run test:jolene && npm run test:workflow && npm run test:persistence",
+    "test:workflow": "tsx scripts/test-workflow.ts",
+    "test:persistence": "tsx scripts/test-persistence.ts",
+    "test:sendability": "tsx scripts/validate-sendability.ts"
   },
   "dependencies": {
     "@azure/cosmos": "^4.10.0",

@@ -7,17 +7,17 @@
 // Returns everything the UI needs, including whether this was a cache hit
 // ("we already have this one") vs freshly researched.
 
-import { normalizeDomain, Company } from "./company";
-import { getCompany, getOrCreateCompany, upsertCompany } from "./repo";
+import { assessmentRoleFit, normalizeDomain, Company } from "./company";
+import { getCompany, getOrCreateCompany, mutateCompany } from "./repo";
 import { gather } from "./gather";
-import { classifyHiring } from "./classify";
+import { applyResearchUpdate, hasFreshSuccessfulCheck } from "./research-state";
 import { generatePacket, Packet as WrittenPacket } from "./packet";
 import type { Tier } from "./llm";
-import { FactsBundle, bundleSources, factsOf } from "./facts";
+import { FactsBundle, bundleSources, newBundle } from "./facts";
 
 export interface ScoutResult {
   company: Company;
-  cached: boolean;          // did it already exist in the DB?
+  cached: boolean;          // did this call reuse a fresh persisted result?
   bundle: FactsBundle;
   packet: WrittenPacket | null;
   atsFound: boolean;
@@ -39,12 +39,22 @@ export async function scout(
 
   // 1. Dedupe gate — do we already have this one?
   const existing = await getCompany(domain);
-  const cached = Boolean(existing);
   const { company } = existing
     ? { company: existing }
     : await getOrCreateCompany(domain, opts.name);
 
   if (opts.name && !company.name) company.name = opts.name;
+
+  // A normal revisit should be instant. Scheduled/manual forced checks bypass this.
+  if (existing && hasFreshSuccessfulCheck(company) && !opts.force) {
+    return {
+      company,
+      cached: true,
+      bundle: newBundle(domain, company.name ?? domain),
+      packet: (company.packet.fast as unknown as WrittenPacket | null) ?? null,
+      atsFound: company.lastCheck?.status === "confirmed-hiring",
+    };
+  }
 
   // 2. Gather verified facts (ATS roles + heat signal, all sourced).
   const knownAbout = company.description
@@ -59,41 +69,58 @@ export async function scout(
   const { bundle, fetch } = await gather({
     domain,
     companyName: company.name ?? domain,
-    boardUrl: opts.boardUrl,
+    boardUrl: opts.boardUrl ?? (company.hiring.source?.startsWith("http") ? company.hiring.source : undefined),
     knownAbout,
   });
 
   const atsFound = fetch.ok && fetch.roles.length > 0;
 
-  // 3. Classify hiring from the real role facts (Luna).
-  const roleClaims = factsOf(bundle, "role").map((f) => f.claim).join("\n");
-  let isHiring = atsFound; // structured roles present = hiring, by definition
-  let roleTitles: string[] = fetch.roles.map((r) => r.title).filter((t) => t.trim().length > 2);
-  if (atsFound) {
-    try {
-      const v = await classifyHiring(company.name ?? domain, roleClaims);
-      isHiring = v.isHiring;
-      if (v.roles?.length) roleTitles = v.roles;
-    } catch {
-      /* keep structured-signal default */
-    }
-  }
+  // Structured API roles are authoritative; a classifier must not invent titles or veto them.
+  const isHiring = atsFound;
+  const roleTitles = fetch.roles.map(r => r.title).filter(t => t.trim().length > 2);
 
   // 4. Write the packet (from facts only). Skip if truly nothing to say.
   let packet: WrittenPacket | null = null;
   if (atsFound) {
-    packet = await generatePacket(bundle, opts.tier ?? "cheap");
+    try { packet = await generatePacket(bundle, opts.tier ?? "cheap"); }
+    catch { /* Persist the hiring check even when the writer fails; never retain old copy. */ }
   }
 
-  // 5. Persist — status driven by real signal.
-  company.hiring = {
-    isHiring,
-    roles: roleTitles.slice(0, 20),
-    source: fetch.boardUrl.startsWith("http") ? fetch.boardUrl : `${fetch.ats}:${fetch.slug ?? ""}`,
-    seenAt: atsFound ? new Date().toISOString() : company.hiring.seenAt,
-  };
-  if (isHiring && company.status === "new") company.status = "hiring";
-  else if (!isHiring && company.status === "new") company.status = "watching";
+  // Product qualification is deterministic, not left to prose generation.
+  // Executive-only boards are hiring, but they are not Buddy's assessment ICP.
+  const roleFit = assessmentRoleFit(roleTitles);
+  if (packet && roleFit.leadershipOnly) {
+    packet.verdict = {
+      call: "skip",
+      line: "Skip for now. Every listed opening is VP, head, director, or C-suite level; Buddy is a stronger fit for entry-through-senior and founding-role hiring.",
+    };
+  }
+
+  // 5. Persist. A failed lookup is UNKNOWN, not proof that hiring stopped.
+  const now = new Date().toISOString();
+  if (fetch.ok) {
+    company.hiring = {
+      isHiring,
+      roles: roleTitles.slice(0, 20),
+      source: fetch.boardUrl.startsWith("http") ? fetch.boardUrl : `${fetch.ats}:${fetch.slug ?? ""}`,
+      seenAt: now,
+    };
+    company.lastCheck = {
+      status: atsFound ? "confirmed-hiring" : "confirmed-empty",
+      checkedAt: now,
+      error: null,
+    };
+    if (isHiring && (company.status === "new" || company.status === "watching")) company.status = "hiring";
+    else if (!isHiring && company.status === "new") company.status = "watching";
+    company.packet = { fast: null, deep: null, generatedAt: null };
+  } else {
+    company.lastCheck = {
+      status: "unavailable",
+      checkedAt: now,
+      error: fetch.error ?? "Hiring source unavailable",
+    };
+    if (!existing && company.status === "new") company.status = "watching";
+  }
 
   if (packet) {
     company.packet = {
@@ -103,9 +130,14 @@ export async function scout(
     };
   }
   company.sources = bundleSources(bundle).map((s) => s.ref);
-  company.lastCheckedAt = new Date().toISOString();
+  company.lastCheckedAt = now;
 
-  const saved = await upsertCompany(company);
+  const saved = await mutateCompany(domain, current => applyResearchUpdate(current, {
+    hiring: company.hiring, lastCheck: company.lastCheck, lastCheckedAt: company.lastCheckedAt,
+    packet: company.packet, sources: company.sources,
+  }));
 
-  return { company: saved, cached, bundle, packet, atsFound };
+  const responsePacket = saved.lastCheck?.status === "confirmed-hiring"
+    ? (saved.packet.fast as unknown as WrittenPacket | null) ?? null : null;
+  return { company: saved, cached: false, bundle, packet: responsePacket, atsFound };
 }
